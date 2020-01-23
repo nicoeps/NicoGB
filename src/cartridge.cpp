@@ -1,6 +1,7 @@
 #include <string>
 #include <cstdint>
 #include <fstream>
+#include <cstring>
 
 #include "cartridge.hpp"
 
@@ -18,7 +19,6 @@ void Cartridge::load(std::string path) {
         cartridgeFile.read(cartridgeData, cartridgeSize);
         loaded = true;
         cartridgeFile.close();
-    
     
         // Title
         for (int i = 0; i < 16; ++i) {
@@ -58,6 +58,7 @@ void Cartridge::load(std::string path) {
         printf("0x%X 0x%X 0x%X\n", cartridgeType, cartridgeData[0x0148],  cartridgeData[0x0149]);
 
         cartridgeRAM = new char [ramSize];
+        memset(cartridgeRAM, 0, ramSize);
 
         switch (cartridgeType) {
             // ROM

@@ -1,11 +1,24 @@
+union RegisterPair {
+    struct {
+        uint8_t low;
+        uint8_t high;
+    };
+    struct {
+        uint16_t value;
+    };
+};
+
 class CPU {
     public:
         Memory& memory;
 
-        uint16_t AF = 0; // AAAAAAAAZNHC0000
-        uint16_t BC = 0; // BBBBBBBBCCCCCCCC
-        uint16_t DE = 0; // DDDDDDDDEEEEEEEE
-        uint16_t HL = 0; // HHHHHHHHLLLLLLLL
+        RegisterPair af{}, bc{}, de{}, hl{};
+
+        uint16_t& AF = af.value; uint8_t& A = af.high; uint8_t& F = af.low;
+        uint16_t& BC = bc.value; uint8_t& B = bc.high; uint8_t& C = bc.low;
+        uint16_t& DE = de.value; uint8_t& D = de.high; uint8_t& E = de.low;
+        uint16_t& HL = hl.value; uint8_t& H = hl.high; uint8_t& L = hl.low;
+
         uint16_t SP = 0;
         uint16_t PC = 0;
         uint8_t opcode = 0;
@@ -100,14 +113,6 @@ class CPU {
         void push(uint16_t r);
         uint16_t pop();
 
-        uint16_t LD_Ab_n(uint16_t r, uint8_t param2);
-        uint16_t LD_aB_n(uint16_t r, uint8_t param2);
-
-        uint16_t LD_Ab_Ab(uint16_t r1, uint16_t r2);
-        uint16_t LD_Ab_aB(uint16_t r1, uint16_t r2);
-        uint16_t LD_aB_Ab(uint16_t r1, uint16_t r2);
-        uint16_t LD_aB_aB(uint16_t r1, uint16_t r2);
-
         void ADD(uint8_t n);
         void ADC(uint8_t n);
         void SUB(uint8_t n);
@@ -116,8 +121,8 @@ class CPU {
         void OR(uint8_t n);
         void XOR(uint8_t n);
         void CP(uint8_t n);
-        uint8_t INC(uint8_t n);
-        uint8_t DEC(uint8_t n);
+        void INC(uint8_t n);
+        void DEC(uint8_t n);
         void ADD_nn(uint16_t nn);
 
         void RLCA();
