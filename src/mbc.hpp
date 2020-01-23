@@ -10,7 +10,7 @@ class MBC0 : public MBC {
         char* ram;
         bool ramg = 0;
         int romSize;
-        int ramSize;;
+        int ramSize;
         uint8_t read(uint16_t address);
         void write(uint16_t address, uint8_t n);
         MBC0(char** rom, char** ram, int romSize, int ramSize)

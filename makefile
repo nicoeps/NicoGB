@@ -1,11 +1,11 @@
 # Compiler
-CC = g++
+CC = clang++
 
 # Files
 SRCS = $(wildcard src/*.cpp)
 
 # Compiler flags
-CFLAGS = -std=c++17 -Wall -Werror -Wextra
+CFLAGS = -std=c++17 -Wall -Werror -Wextra -O2
 
 # Libraries
 LIBS = -lSDL2
