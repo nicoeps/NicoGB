@@ -134,8 +134,7 @@ void PPU::drawWindow() {
 void PPU::drawSprites() {
     uint8_t LCDC = cpu.memory.read(0xFF40);
     int SIZE = ((LCDC & 0x4) >> 2) ? 16 : 8;
-    uint16_t OAM = cpu.memory.read(0xFF46) << 8;
-    // uint16_t OAM = 0xFE00;
+    uint16_t OAM = 0xFE00;
     if (LCDC & 0x2) {
         for (uint8_t byte = 0; byte <= 0x9F; byte += 4) {
             int Y = cpu.memory.read(OAM+byte)-16;

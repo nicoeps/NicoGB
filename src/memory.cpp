@@ -73,9 +73,11 @@ void Memory::write(uint16_t address, uint8_t n) {
             oam[address - 0xFE00] = n;
         // }
     } else if ((address >= 0xFF00 && address <= 0xFF7F) || address == 0xFFFF) {
-        if (address == 0xFF46) { // DMA Transfers
-            // TODO
-            IO[address - 0xFF00] = n;
+        if (address == 0xFF46) { // DMA Transfer
+            address = n << 8;
+            for (int i = 0; i < 0xA0; i++) {
+                oam[i] = read(address+i);
+            }
         } else if (address == 0xFF50 && n == 0x01) {
             IO[address - 0xFF00] = n;
             bootEnabled = false;
