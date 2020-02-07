@@ -310,8 +310,8 @@ void CPU::cycle() {
     divider = totalCycles % 64;
     if (divider == 0 || divider < prevDivider) {
         memory.IO[0x4]++;
-        prevDivider = totalCycles % 64;
     }
+    prevDivider = divider;
 
     if (memory.read(TAC) & 0x04) { // Timer Enable
         switch (memory.read(TAC) & 0x03) { // Input Clock Select

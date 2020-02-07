@@ -8,6 +8,7 @@ void Joypad::reset() {
 
 uint8_t Joypad::read() {
     switch (mode) {
+        case 0x00: return keys[0] & keys[1];
         case 0x10: return keys[0];
         case 0x20: return keys[1];
         default: return 0xCF;
@@ -20,10 +21,10 @@ void Joypad::write(uint8_t n) {
 
 void Joypad::keyDown(SDL_Keysym key) {
     switch (key.sym) {
-        case SDLK_RIGHT:  keys[1] &= 0xE; interrupt = true; break;
-        case SDLK_LEFT:   keys[1] &= 0xD; interrupt = true; break;
-        case SDLK_UP:     keys[1] &= 0xB; interrupt = true; break;
-        case SDLK_DOWN:   keys[1] &= 0x7; interrupt = true; break;
+        case SDLK_RIGHT:  keys[1] |= 0x2; keys[1] &= 0xE; interrupt = true; break;
+        case SDLK_LEFT:   keys[1] |= 0x1; keys[1] &= 0xD; interrupt = true; break;
+        case SDLK_UP:     keys[1] |= 0x8; keys[1] &= 0xB; interrupt = true; break;
+        case SDLK_DOWN:   keys[1] |= 0x4; keys[1] &= 0x7; interrupt = true; break;
         case SDLK_z:      keys[0] &= 0xE; interrupt = true; break;
         case SDLK_x:      keys[0] &= 0xD; interrupt = true; break;
         case SDLK_RSHIFT: keys[0] &= 0xB; interrupt = true; break;
