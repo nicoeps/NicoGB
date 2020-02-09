@@ -10,6 +10,11 @@
 void PPU::update() {
     totalCycles += cpu.cycles;
 
+    lcdc = cpu.memory.read(lcdcAddr);
+    if ((lcdc & 0x80) == 0) {
+        cpu.memory.write(lyAddr, 0);
+    }
+
     stat = cpu.memory.read(statAddr);
     ly = cpu.memory.read(lyAddr);
 
@@ -34,6 +39,11 @@ void PPU::update() {
             updateScanLine();
         }
     }
+
+    if ((lcdc & 0x80) == 0) {
+        stat = (stat & 0xFC) | 0x00;
+    }
+
     cpu.memory.write(statAddr, stat);
 }
 
