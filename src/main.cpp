@@ -1,13 +1,14 @@
-#include <cstdint>
 #include <thread>
 #include <chrono>
 
 #include "SDL2/SDL.h"
 
+#include "timer.hpp"
+#include "joypad.hpp"
 #include "cartridge.hpp"
 #include "memory.hpp"
-#include "cpu.hpp"
 #include "ppu.hpp"
+#include "cpu.hpp"
 
 auto epoch = std::chrono::high_resolution_clock::from_time_t(0);
 
@@ -20,122 +21,62 @@ auto millis() {
     <std::chrono::milliseconds>(now() - epoch).count();
 }
 
-void startup(PPU &ppu) {
-    memset(ppu.cpu.memory.memory, 0, sizeof(ppu.cpu.memory.memory));
-    memset(ppu.cpu.memory.vram, 0, sizeof(ppu.cpu.memory.vram));
-    memset(ppu.cpu.memory.wram, 0, sizeof(ppu.cpu.memory.wram));
-    memset(ppu.cpu.memory.oam, 0, sizeof(ppu.cpu.memory.oam));
-    memset(ppu.cpu.memory.IO, 0, sizeof(ppu.cpu.memory.IO));
-    memset(ppu.cpu.memory.hram, 0, sizeof(ppu.cpu.memory.hram));
-    ppu.cpu.memory.bootEnabled = true;
-    ppu.ly = 0;
-    ppu.stat = 0;
-    ppu.totalCycles = 0;
-    ppu.cpu.memory.write(0xFF00, 0xCF);  // Joypad 1100 1111 (No Buttons pressed)
-    ppu.cpu.memory.write(0xFF05, 0x0);   // TIMA
-    ppu.cpu.memory.write(0xFF06, 0x0);   // TMA
-    ppu.cpu.memory.write(0xFF07, 0x0);   // TAC
-    ppu.cpu.memory.write(0xFF10, 0x80);  // NR10
-    ppu.cpu.memory.write(0xFF11, 0xBF);  // NR11
-    ppu.cpu.memory.write(0xFF12, 0xF3);  // NR12
-    ppu.cpu.memory.write(0xFF14, 0xBF);  // NR14
-    ppu.cpu.memory.write(0xFF16, 0x3F);  // NR21
-    ppu.cpu.memory.write(0xFF17, 0x00);  // NR22
-    ppu.cpu.memory.write(0xFF19, 0xBF);  // NR24
-    ppu.cpu.memory.write(0xFF1A, 0x7F);  // NR30
-    ppu.cpu.memory.write(0xFF1B, 0xFF);  // NR31
-    ppu.cpu.memory.write(0xFF1C, 0x9F);  // NR32
-    ppu.cpu.memory.write(0xFF1E, 0xBF);  // NR33
-    ppu.cpu.memory.write(0xFF20, 0xFF);  // NR41
-    ppu.cpu.memory.write(0xFF21, 0x00);  // NR42
-    ppu.cpu.memory.write(0xFF22, 0x00);  // NR43
-    ppu.cpu.memory.write(0xFF23, 0xBF);  // NR30
-    ppu.cpu.memory.write(0xFF24, 0x77);  // NR50
-    ppu.cpu.memory.write(0xFF25, 0xF3);  // NR51
-    ppu.cpu.memory.write(0xFF26, 0xF1);  // NR52
-    ppu.cpu.memory.write(0xFF40, 0x91);  // LCDC
-    ppu.cpu.memory.write(0xFF42, 0x00);  // SCY
-    ppu.cpu.memory.write(0xFF43, 0x00);  // SCX
-    ppu.cpu.memory.write(0xFF44, 0x00);  // LY
-    ppu.cpu.memory.write(0xFF45, 0x00);  // LYC
-    ppu.cpu.memory.write(0xFF47, 0xFC);  // BGP
-    ppu.cpu.memory.write(0xFF48, 0xFF);  // OBP0
-    ppu.cpu.memory.write(0xFF49, 0xFF);  // OBP1
-    ppu.cpu.memory.write(0xFF4A, 0x00);  // WY
-    ppu.cpu.memory.write(0xFF4B, 0x00);  // WX
-    ppu.cpu.memory.write(0xFF0F, 0x00);  // IF
-    ppu.cpu.memory.write(0xFFFF, 0x00);  // IE
+Key getKey(SDL_Keycode sym) {
+    switch (sym) {
+        case SDLK_RIGHT:  return RIGHT;  break;
+        case SDLK_LEFT:   return LEFT;   break;
+        case SDLK_UP:     return UP;     break;
+        case SDLK_DOWN:   return DOWN;   break;
+        case SDLK_z:      return A;      break;
+        case SDLK_x:      return B;      break;
+        case SDLK_LSHIFT:
+        case SDLK_RSHIFT: return SELECT; break;
+        case SDLK_RETURN: return START;  break;
+        default:          return NONE;   break;
+    }
 }
 
-int main() {
-    Cartridge cartridge;
-    Joypad joypad;
-    Memory memory(cartridge, joypad);
-    CPU cpu(memory);
-    PPU ppu(cpu);
+void init(CPU& cpu) {
+    cpu.init();
+    cpu.memory.timer.init();
+    cpu.memory.init();
+    cpu.ppu.init();
+}
 
-    memory.bootEnabled = true;
-
+void run(CPU& cpu) {
     const int SCALE = 4;
     const int WIDTH = 160;
     const int HEIGHT = 144;
 
     SDL_Init(SDL_INIT_VIDEO);
-
-    SDL_Event event;
-
     SDL_Window *window = SDL_CreateWindow("NicoGB",
         SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
         WIDTH*SCALE, HEIGHT*SCALE, 0);
-
-    // SDL_SetWindowSize(window, WIDTH, HEIGHT);
-
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, 0);
-
     SDL_Texture *texture = SDL_CreateTexture(renderer,
     SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 160, 144);
+    SDL_UpdateTexture(texture, NULL, cpu.ppu.framebuffer.data(), 160 * sizeof(uint32_t));
 
-
-    SDL_UpdateTexture(texture, NULL, ppu.framebuffer, 160 * sizeof(uint32_t));
-
+    SDL_Event event;
     SDL_EventState(SDL_DROPFILE, SDL_ENABLE);
-
     std::string path;
-
-    SDL_bool done = SDL_FALSE;
-    while (!done) {
-        while (!done && SDL_PollEvent(&event)) {
-            switch (event.type) {
-                case SDL_QUIT: {
-                    cpu.run = false;
-                    done = SDL_TRUE;
-                    break;
-                }
-
-                case SDL_DROPFILE: {
-                    path = event.drop.file;
-                    cartridge.load(path);
-                    startup(ppu);
-                    done = SDL_TRUE;
-                    break;
-               }
-            }
-        SDL_RenderClear(renderer);
-        SDL_RenderCopy(renderer, texture, NULL, NULL);
-        SDL_RenderPresent(renderer);
-        }
-    }
+    Key key;
 
     auto last = millis();
     while (cpu.run) {
-        cpu.cycle();
-        ppu.update();
+        if (cpu.memory.cartridge.loaded && cpu.totalCycles < 69905) {
+            cpu.cycle();
+        }
+
         if (millis() - last >= 1000/60) {
             last = millis();
-            SDL_UpdateTexture(texture, NULL, ppu.framebuffer, 160 * sizeof(uint32_t));
+            cpu.totalCycles = 0;
+
+            SDL_UpdateTexture(texture, NULL, cpu.ppu.framebuffer.data(), 160 * sizeof(uint32_t));
             SDL_RenderClear(renderer);
             SDL_RenderCopy(renderer, texture, NULL, NULL);
             SDL_RenderPresent(renderer);
+
             while (SDL_PollEvent(&event)) {
                 switch (event.type) {
                     case SDL_QUIT:
@@ -143,27 +84,99 @@ int main() {
                         break;
 
                     case SDL_DROPFILE:
+                        init(cpu);
                         path = event.drop.file;
-                        cpu.init();
-                        cartridge.load(path);
-                        startup(ppu);
+                        cpu.memory.cartridge.load(path);
+                        SDL_SetWindowTitle(window, (std::string("NicoGB - ") + cpu.memory.cartridge.title.data()).c_str());
                         break;
 
                     case SDL_KEYDOWN:
-                        joypad.keyDown(event.key.keysym);
+                        switch (event.key.keysym.sym) {
+                            case SDLK_q: cpu.run = false; break;
+                            case SDLK_r: init(cpu); break;
+                            default:
+                                key = getKey(event.key.keysym.sym);
+                                cpu.memory.joypad.keyDown(key);
+                                break;
+                        }
                         break;
 
                     case SDL_KEYUP:
-                        joypad.keyUp(event.key.keysym);
+                        key = getKey(event.key.keysym.sym);
+                        cpu.memory.joypad.keyUp(key);
                         break;
+
+                    default: break;
                 }
             }
-            SDL_Delay(7);
         }
     }
     SDL_DestroyTexture(texture);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
+}
+
+#ifdef TEST
+
+typedef std::tuple<std::string, std::string, std::string> testcase;
+
+std::string assert(CPU& cpu, testcase test) {
+    std::string output;
+    std::string passed;
+    std::string failed;
+    std::string rom;
+
+    std::tie(passed, failed, rom) = test;
+
+    init(cpu);
+    cpu.memory.cartridge.load(rom);
+    if (!cpu.memory.cartridge.loaded) return rom + ": file not found";
+
+    auto time = millis();
+    while (cpu.run) {
+        cpu.cycle();
+        if (cpu.memory.read(0xFF02) == 0x81) {
+            cpu.memory.write(0xFF02, 0);
+            output += cpu.memory.read(0xFF01);
+        }
+        if (output.find(passed) != std::string::npos) {
+            return rom + ": pass";
+        } else if (output.find(failed) != std::string::npos) {
+            return rom + ": fail";
+        }
+        if (millis() - time >= 10000) break;
+    }
+    return rom + ": timeout";
+}
+
+#endif
+
+int main() {
+    Timer timer;
+    Cartridge cartridge;
+    Joypad joypad;
+    Memory memory(cartridge, joypad, timer);
+    PPU ppu(memory);
+    CPU cpu(memory, ppu);
+
+#ifndef TEST
+
+    run(cpu);
+
+#else
+
+    std::vector <testcase> tests {
+        testcase("Passed", "Failed", "tests/blargg/cpu_instrs/cpu_instrs.gb"),
+        testcase("Passed", "Failed", "tests/blargg/instr_timing/instr_timing.gb"),
+        testcase("Passed", "Failed", "tests/blargg/mem_timing/mem_timing.gb"),
+    };
+
+    for (auto test: tests) {
+        printf("%s\n", assert(cpu, test).c_str());
+    }
+
+#endif
+
     return 0;
 }

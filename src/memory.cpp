@@ -1,97 +1,188 @@
-#include <string>
-#include <cstdint>
-#include <fstream>
-
-#include "cartridge.hpp"
 #include "memory.hpp"
+#include "cartridge.hpp"
+#include "joypad.hpp"
+#include "timer.hpp"
+
+Memory::Memory(Cartridge& cartridge, Joypad& joypad, Timer& timer)
+    : cartridge(cartridge), joypad(joypad), timer(timer) {
+    vram.reserve(0x2000);
+    wram.reserve(0x2000);
+    oam.reserve(0xA0);
+    io.reserve(0x100);
+    hram.reserve(0x7F);
+    boot = {
+        0x31, 0xFE, 0xFF, 0xAF, 0x21, 0xFF, 0x9F, 0x32, 0xCB, 0x7C, 0x20, 0xFB, 0x21, 0x26, 0xFF, 0x0E,
+        0x11, 0x3E, 0x80, 0x32, 0xE2, 0x0C, 0x3E, 0xF3, 0xE2, 0x32, 0x3E, 0x77, 0x77, 0x3E, 0xFC, 0xE0,
+        0x47, 0x11, 0xA8, 0x00, 0x21, 0x10, 0x80, 0x1A, 0xCD, 0x95, 0x00, 0xCD, 0x96, 0x00, 0x13, 0x7B,
+        0xFE, 0x34, 0x20, 0xF3, 0x11, 0xD8, 0x00, 0x06, 0x08, 0x1A, 0x13, 0x22, 0x23, 0x05, 0x20, 0xF9,
+        0x3E, 0x19, 0xEA, 0x10, 0x99, 0x21, 0x2F, 0x99, 0x0E, 0x0C, 0x3D, 0x28, 0x08, 0x32, 0x0D, 0x20,
+        0xF9, 0x2E, 0x0F, 0x18, 0xF3, 0x67, 0x3E, 0x64, 0x57, 0xE0, 0x42, 0x3E, 0x91, 0xE0, 0x40, 0x04,
+        0x1E, 0x02, 0x0E, 0x0C, 0xF0, 0x44, 0xFE, 0x90, 0x20, 0xFA, 0x0D, 0x20, 0xF7, 0x1D, 0x20, 0xF2,
+        0x0E, 0x13, 0x24, 0x7C, 0x1E, 0x83, 0xFE, 0x62, 0x28, 0x06, 0x1E, 0xC1, 0xFE, 0x64, 0x20, 0x06,
+        0x7B, 0xE2, 0x0C, 0x3E, 0x87, 0xE2, 0xF0, 0x42, 0x90, 0xE0, 0x42, 0x15, 0x20, 0xD2, 0x05, 0x20,
+        0x4F, 0x16, 0x20, 0x18, 0xCB, 0x4F, 0x06, 0x04, 0xC5, 0xCB, 0x11, 0x17, 0xC1, 0xCB, 0x11, 0x17,
+        0x05, 0x20, 0xF5, 0x22, 0x23, 0x22, 0x23, 0xC9, 0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0C, 0x00, 0x0F,
+        0x00, 0x01, 0x00, 0x0E, 0x36, 0x66, 0xC6, 0x60, 0xFC, 0xCF, 0x8D, 0xD9, 0xCE, 0xFF, 0x6F, 0xFF,
+        0xDC, 0xCC, 0x6E, 0xE6, 0xDD, 0xDC, 0x98, 0x9F, 0xB3, 0xB1, 0x33, 0x3E, 0x66, 0x63, 0xEE, 0x6E,
+        0xCC, 0xCF, 0xCC, 0xC8, 0xF7, 0x31, 0xEC, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x21, 0x04, 0x01, 0x11, 0xA8, 0x00, 0x1A, 0x13, 0xBE, 0x00, 0x00, 0x23, 0x7D, 0xFE, 0x34, 0x20,
+        0xF5, 0x06, 0x19, 0x78, 0x86, 0x23, 0x05, 0x20, 0xFB, 0x86, 0x20, 0x01, 0x3E, 0x01, 0xE0, 0x50
+    };
+    init();
+}
+
+void Memory::init() {
+    bootEnabled = false;
+    std::fill_n(vram.begin(), 0x2000, 0);
+    std::fill_n(wram.begin(), 0x2000, 0);
+    std::fill_n(oam.begin(), 0xA0, 0);
+    std::fill_n(io.begin(), 0x100, 0xFF);
+    std::fill_n(hram.begin(), 0x7F, 0);
+    lcd.lcdc = 0x91;
+    lcd.stat = 0x80;
+    lcd.scy = 0;
+    lcd.scx = 0;
+    lcd.ly = 0;
+    lcd.lyc = 0;
+    lcd.bgp = 0xFC;
+    lcd.obp0 = 0xFF;
+    lcd.obp1 = 0xFF;
+    lcd.wy = 0;
+    lcd.wx = 0;
+    dmaAddress = 0;
+    dmaCycle = 0xFF;
+    write(0xFF01, 0x00);  // SB
+    write(0xFF02, 0x7E);  // SC
+    write(0xFF04, 0x00);  // DIV
+    write(0xFF05, 0x00);  // TIMA
+    write(0xFF06, 0x00);  // TMA
+    write(0xFF07, 0x00);  // TAC
+    write(0xFF0F, 0x00);  // IF
+    write(0xFFFF, 0x00);  // IE
+    bootEnabled = true;
+}
 
 void Memory::interrupt(uint8_t IRQ) {
     write(0xFF0F, read(0xFF0F) | IRQ);
 }
 
+void Memory::transfer() {
+    if (dmaCycle <= 0xA0) {
+        oam[dmaCycle] = read(dmaAddress+dmaCycle);
+        dmaCycle++;
+    }
+}
+
 uint8_t Memory::read(uint16_t address) {
-    // Bootrom
     if (address < 0x100 && bootEnabled) {
         return boot[address];
-    
-    // Cartridge ROM
     } else if (address <= 0x7FFF && cartridge.loaded == true) {
         return cartridge.read(address);
-
-    // VRAM
     } else if (address >= 0x8000 && address <= 0x9FFF) {
-        // if (!((read(0xFF41) & 0x03) == 0x03)) {
-            return vram[address - 0x8000];
-        // }
-        return 0xFF;
-
-    // Cartridge RAM
+        return vram[address - 0x8000];
     } else if (address >= 0xA000 && address <= 0xBFFF) {
         return cartridge.read(address);
-
-    // WRAM
     } else if (address >= 0xC000 && address <= 0xDFFF) {
         return wram[address - 0xC000];
-
-    // OAM
+    } else if (address >= 0xE000 && address <= 0xFDFF) {
+        return wram[address - 0xE000];
     } else if (address >= 0xFE00 && address <= 0xFE9F) {
-        // if (!((read(0xFF41) & 0x03) == 0x03)) {
-            return oam[address - 0xFE00];
-        // }
-        return 0xFF;
-
-    // IO
+        return oam[address - 0xFE00];
     } else if ((address >= 0xFF00 && address <= 0xFF7F) || address == 0xFFFF) {
-        if (address == 0xFF00) {
-            return joypad.read();
+        switch (address) {
+            case 0xFF00: return joypad.read();
+            case 0xFF04: return timer.divider;
+            case 0xFF05: return timer.tima;
+            case 0xFF06: return timer.tma;
+            case 0xFF07: return timer.tac | 0xF8;
+            case 0xFF13: return 0xFF;
+            case 0xFF40: return lcd.lcdc;
+            case 0xFF41: return lcd.stat | 0x80;
+            case 0xFF42: return lcd.scy;
+            case 0xFF43: return lcd.scx;
+            case 0xFF44: return lcd.ly;
+            case 0xFF45: return lcd.lyc;
+            case 0xFF47: return lcd.bgp;
+            case 0xFF48: return lcd.obp0;
+            case 0xFF49: return lcd.obp1;
+            case 0xFF4A: return lcd.wy;
+            case 0xFF4B: return lcd.wx;
+            case 0xFFFF: return io[address - 0xFF00] | 0xE0; // IE
+            case 0xFF0F: return io[address - 0xFF0F] | 0xE0; // IF
+            default:     return io[address - 0xFF00];
         }
-        return IO[address - 0xFF00];
-
-    // HRAM
     } else if (address >= 0xFF80 && address <= 0xFFFE) {
         return hram[address - 0xFF80];
     } else {
-        return memory[address];
-        // printf("ERROR: Reading from invalid address: 0x%04X\n", address);
         return 0xFF;
     }
 }
 
 void Memory::write(uint16_t address, uint8_t n) {
-    if (address <= 0x7FFF) {
+    if (address <= 0x7FFF && cartridge.loaded == true) {
         cartridge.write(address, n);
     } else if (address >= 0x8000 && address <= 0x9FFF) {
-        // if (!((read(0xFF41) & 0x03) == 0x03)) {
-            vram[address - 0x8000] = n;
-        // }
+        vram[address - 0x8000] = n;
     } else if (address >= 0xA000 && address <= 0xBFFF) {
         cartridge.write(address, n); 
     } else if (address >= 0xC000 && address <= 0xDFFF) {
         wram[address - 0xC000] = n;
+    } else if (address >= 0xE000 && address <= 0xFDFF) {
+        wram[address - 0xE000] = n;
     } else if (address >= 0xFE00 && address <= 0xFE9F) {
-        // if (!((read(0xFF41) & 0x03) == 0x03)) {
-            oam[address - 0xFE00] = n;
-        // }
+        oam[address - 0xFE00] = n;
     } else if ((address >= 0xFF00 && address <= 0xFF7F) || address == 0xFFFF) {
-        if (address == 0xFF46) { // DMA Transfer
-            address = n << 8;
-            for (int i = 0; i < 0xA0; i++) {
-                oam[i] = read(address+i);
-            }
-        } else if (address == 0xFF50 && n == 0x01) {
-            IO[address - 0xFF00] = n;
-            bootEnabled = false;
-        } else if (address == 0xFF04) { // DIV
-            IO[address - 0xFF00] = 0;
-        } else if (address == 0xFF00) { // Joypad
-            joypad.write(n);
-        } else {
-            IO[address - 0xFF00] = n;
+        switch (address) {
+            case 0xFF00: joypad.write(n); break;
+            case 0xFF04: timer.counter = 0; break;
+            case 0xFF05: timer.tima = n; break;
+            case 0xFF06: timer.tma = n; break;
+            case 0xFF07: timer.tac = n | 0xF8; break;
+            case 0xFF40: lcd.lcdc = n; break;
+            case 0xFF41: lcd.stat |= (n & 0x78) | 0x80; break;
+            case 0xFF42: lcd.scy = n; break;
+            case 0xFF43: lcd.scx = n; break;
+            case 0xFF45: lcd.lyc = n; break;
+            case 0xFF46: // DMA Transfer
+                if (dmaCycle > 0xA0) {
+                    dmaAddress = n << 8;
+                    dmaCycle = 0x0;
+                }
+                break;
+            case 0xFF47: lcd.bgp = n; break;
+            case 0xFF48: lcd.obp0 = n; break;
+            case 0xFF49: lcd.obp1 = n; break;
+            case 0xFF4A: lcd.wy = n; break;
+            case 0xFF4B: lcd.wx = n; break;
+            case 0xFF50:
+            io[0x50] = n;
+                if (n == 0x01) {
+                    bootEnabled = false;
+                    write(0xFF10, 0x80);  // NR10
+                    write(0xFF11, 0xBF);  // NR11
+                    write(0xFF12, 0xF3);  // NR12
+                    write(0xFF14, 0xBF);  // NR14
+                    write(0xFF16, 0x3F);  // NR21
+                    write(0xFF17, 0x00);  // NR22
+                    write(0xFF19, 0xBF);  // NR24
+                    write(0xFF1A, 0x7F);  // NR30
+                    write(0xFF1B, 0xFF);  // NR31
+                    write(0xFF1C, 0x9F);  // NR32
+                    write(0xFF1E, 0xBF);  // NR33
+                    write(0xFF20, 0xFF);  // NR41
+                    write(0xFF21, 0x00);  // NR42
+                    write(0xFF22, 0x00);  // NR43
+                    write(0xFF23, 0xBF);  // NR30
+                    write(0xFF24, 0x77);  // NR50
+                    write(0xFF25, 0xF3);  // NR51
+                    write(0xFF26, 0xF1);  // NR52
+                }
+                break;
+            case 0xFFFF: io[address - 0xFF00] = n | 0xE0; // IE
+            case 0xFF0F: io[address - 0xFF0F] = n | 0xE0; // IF
+            default: io[address - 0xFF00] = n; break;
         }
     } else if (address >= 0xFF80 && address <= 0xFFFE) {
         hram[address - 0xFF80] = n;
-    } else {
-        memory[address] = n;
-        // printf("ERROR: Writing to invalid address: 0x%04X\n", address);
     }
 }

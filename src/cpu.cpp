@@ -1,8 +1,7 @@
-#include <bitset>
-
-#include "cartridge.hpp"
-#include "memory.hpp"
 #include "cpu.hpp"
+#include "timer.hpp"
+#include "joypad.hpp"
+#include "memory.hpp"
 #include "ppu.hpp"
 
 const uint8_t ZERO = 0x80;
@@ -10,12 +9,59 @@ const uint8_t NEG = 0x40;
 const uint8_t HALF = 0x20;
 const uint8_t CARRY = 0x10;
 
-const uint16_t TIMA = 0xFF05;
-const uint16_t TMA = 0xFF06;
-const uint16_t TAC = 0xFF07;
+const uint8_t V_BLANK = 0x01;
+const uint8_t LCD_STAT = 0x02;
+const uint8_t TIMER = 0x04;
+const uint8_t SERIAL = 0x08;
+const uint8_t JOYPAD = 0x10;
 
 const uint16_t IE = 0xFFFF;
 const uint16_t IF = 0xFF0F;
+
+CPU::CPU(Memory& memory, PPU& ppu) : memory(memory), ppu(ppu) {
+    init();
+}
+
+void CPU::init() {
+    AF = 0;
+    BC = 0;
+    DE = 0;
+    HL = 0;
+    SP = 0;
+    PC = 0;
+    opcode = 0;
+
+    totalCycles = 0;
+    halted = 0;
+    haltBug = 0;
+    IRQ = 0;
+    IME = 0;
+    run = true;
+}
+
+void CPU::tick() {
+    memory.timer.counter += 4;
+    totalCycles += 4;
+
+    if (memory.timer.reload > 0) {
+        memory.timer.reload -= 4;
+        if (memory.timer.reload == 0) {
+            memory.interrupt(TIMER);
+            memory.timer.tima = memory.timer.tma;
+        }
+    }
+
+    if (memory.timer.fallingEdge()) {
+        memory.timer.tima++;
+        if (memory.timer.tima == 0) {
+            memory.timer.reload = 4;
+        }
+    }
+    memory.timer.oldEdge = memory.timer.currentEdge();
+
+    memory.transfer();
+    ppu.update();
+}
 
 // Current flag
 uint8_t CPU::ZERO_F() { return AF & ZERO; }
@@ -73,9 +119,20 @@ uint8_t CPU::CARRY_Sbc(uint8_t a, uint8_t b) {
     return ((a-b - (CARRY_F() >> 4)) < 0) ? CARRY : 0;
 }
 
+uint8_t CPU::read(uint16_t address) {
+    uint8_t n = memory.read(address);
+    tick();
+    return n;
+}
+
+void CPU::write(uint16_t address, uint8_t n) {
+    memory.write(address, n);
+    tick();
+}
+
 // Read memory
 uint8_t CPU::readByte() {
-    return memory.read(PC++);
+    return read(PC++);
 }
 
 uint16_t CPU::readb16() {
@@ -86,13 +143,14 @@ uint16_t CPU::readb16() {
 
 // Stack
 void CPU::push(uint16_t r) {
-    memory.write(--SP, r >> 8);
-    memory.write(--SP, r & 0x00FF);
+    tick();
+    write(--SP, r >> 8);
+    write(--SP, r & 0x00FF);
 }
 
 uint16_t CPU::pop() {
-    uint8_t low = memory.read(SP++);
-    uint8_t high = memory.read(SP++);
+    uint8_t low = read(SP++);
+    uint8_t high = read(SP++);
     return (high << 8) | low;
 }
 
@@ -161,6 +219,7 @@ void CPU::DEC(uint8_t n) {
 void CPU::ADD_nn(uint16_t nn) {
     F = ZERO_F() | HALF_Se(HL, nn) | CARRY_Se(HL, nn);
     HL += nn;
+    tick();
 }
 
 // Rotate Shift Instructions
@@ -269,7 +328,7 @@ void CPU::JP(bool flag) {
     uint16_t nn = readb16();
     if (flag) {
         PC = nn;
-        cycles++;
+        tick();
     }
 }
 
@@ -278,7 +337,7 @@ void CPU::JR(bool flag) {
     int8_t e = readByte();
     if (flag) {
         PC += e;
-        cycles++;
+        tick();
     }
 }
 
@@ -287,14 +346,14 @@ void CPU::CALL(bool flag) {
     if (flag) {
         push(PC);
         PC = nn;
-        cycles += 3;
     }
 }
 
 void CPU::RET(bool flag) {
+    tick();
     if (flag) {
         PC = pop();
-        cycles += 3;
+        tick();
     }
 }
 
@@ -305,49 +364,8 @@ void CPU::cycle() {
     int8_t e;
     uint8_t interrupt;
 
-    totalCycles += cycles;
-
-    divider = totalCycles % 64;
-    if (divider == 0 || divider < prevDivider) {
-        memory.IO[0x4]++;
-    }
-    prevDivider = divider;
-
-    if (memory.read(TAC) & 0x04) { // Timer Enable
-        switch (memory.read(TAC) & 0x03) { // Input Clock Select
-            case 0:
-                timer = totalCycles % 256;
-                break;
-
-            case 1:
-                timer = totalCycles % 4;
-                break;
-
-            case 2:
-                timer = totalCycles % 16;
-                break;
-
-            case 3:
-                timer = totalCycles % 64;
-                break;
-        }
-
-        if (timer == 0 || timer < prevTimer) {
-            memory.write(TIMA, memory.read(TIMA) + 1);
-
-            if (memory.read(TIMA) == 0) { // If overflow
-                memory.write(TIMA, memory.read(TMA)); // Reset TIMA
-                memory.interrupt(TIMER);
-            }
-        }
-        prevTimer = timer;
-    }
-
-    if (enableIRQ != 0 && --enableIRQ == 0) {
+    if (IRQ != 0 && --IRQ == 0) {
         IME = 1;
-    }
-    if (disableIRQ != 0 && --disableIRQ == 0) {
-        IME = 0;
     }
 
     if (memory.joypad.interrupt) {
@@ -355,70 +373,44 @@ void CPU::cycle() {
         memory.interrupt(0x10);
     }
 
-    if (IME || halted) {
-        interrupt = memory.read(IF) & memory.read(IE);
-        // if (interrupt) {
-        //     halted = 0;
-        // }
+    interrupt = memory.read(IF) & memory.read(IE) & 0x1F;
+    if (IME && interrupt != 0) {
+        IME = 0;
+        tick();
+        tick();
+        push(PC);
         if (interrupt & V_BLANK) {
-            // IME = 0;
-            // if (halted) {
-            //     halted = 0;
-            // } else {
-            if (IME == 1) {
-                memory.write(IF, memory.read(IF) & ~V_BLANK);
-                push(PC);
-                PC = 0x40;
-            }
-            IME = 0;
-            halted = 0;
-            // }
-        } else if (interrupt & 0x02) { // LCD STAT
-            // IME = 0;
-            if (IME == 1) {
-                memory.write(IF, memory.read(IF) & ~0x02);
-                push(PC);
-                PC = 0x48;
-            }
-            IME = 0;
-            halted = 0;
+            PC = 0x40;
+            memory.write(IF, memory.read(IF) & ~V_BLANK);
+        } else if (interrupt & LCD_STAT) {
+            PC = 0x48;
+            memory.write(IF, memory.read(IF) & ~LCD_STAT);
         } else if (interrupt & TIMER) {
-            // IME = 0;
-            // if (halted) {
-            //     halted = 0;
-            // } else {
-            if (IME == 1) {
-                memory.write(IF, memory.read(IF) & ~TIMER);
-                push(PC);
-                PC = 0x50;
-            }
-            IME = 0;
-            halted = 0;
-            // }
-        } else if (interrupt & 0x10) { // Joypad
-            // IME = 0;
-            if (IME == 1) {
-                memory.write(IF, memory.read(IF) & ~0x10);
-                push(PC);
-                PC = 0x60;
-            }
-            IME = 0;
-            halted = 0;
+            PC = 0x50;
+            memory.write(IF, memory.read(IF) & ~TIMER);
+        } else if (interrupt & SERIAL) {
+            PC = 0x58;
+            memory.write(IF, memory.read(IF) & ~SERIAL);
+        } else if (interrupt & JOYPAD) {
+            PC = 0x60;
+            memory.write(IF, memory.read(IF) & ~JOYPAD);
         }
     }
 
     if (halted) {
-        totalCycles++;
-        cycles = 1;
-        return;
+        if (interrupt != 0) {
+            halted = 0;
+        } else {
+            tick();
+            return;
+        }
     }
 
     opcode = readByte();
 
-    if (opcode == 0xCB) {
-        cycles = cbCycles[opcode];
-    } else {
-        cycles = opCycles[opcode];
+    if (haltBug) {
+        haltBug = 0;
+        PC--;
     }
 
     switch (opcode) {
@@ -496,67 +488,67 @@ void CPU::cycle() {
         case 0x3E: A = readByte(); break;
 
         // LD r,(HL)
-        case 0x46: B = memory.read(HL); break;
-        case 0x4E: C = memory.read(HL); break;
-        case 0x56: D = memory.read(HL); break;
-        case 0x5E: E = memory.read(HL); break;
-        case 0x66: H = memory.read(HL); break;
-        case 0x6E: L = memory.read(HL); break;
-        case 0x7E: A = memory.read(HL); break;
+        case 0x46: B = read(HL); break;
+        case 0x4E: C = read(HL); break;
+        case 0x56: D = read(HL); break;
+        case 0x5E: E = read(HL); break;
+        case 0x66: H = read(HL); break;
+        case 0x6E: L = read(HL); break;
+        case 0x7E: A = read(HL); break;
 
         // LD (HL),r
-        case 0x70: memory.write(HL, B); break;
-        case 0x71: memory.write(HL, C); break;
-        case 0x72: memory.write(HL, D); break;
-        case 0x73: memory.write(HL, E); break;
-        case 0x74: memory.write(HL, H); break;
-        case 0x75: memory.write(HL, L); break;
-        case 0x77: memory.write(HL, A); break;
+        case 0x70: write(HL, B); break;
+        case 0x71: write(HL, C); break;
+        case 0x72: write(HL, D); break;
+        case 0x73: write(HL, E); break;
+        case 0x74: write(HL, H); break;
+        case 0x75: write(HL, L); break;
+        case 0x77: write(HL, A); break;
 
         // LD (HL),n
-        case 0x36: memory.write(HL, readByte()); break;
+        case 0x36: write(HL, readByte()); break;
 
         // LD A,(BC)
-        case 0x0A: A = memory.read(BC); break;
+        case 0x0A: A = read(BC); break;
 
         // LD A,(DE)
-        case 0x1A: A = memory.read(DE); break;
+        case 0x1A: A = read(DE); break;
             
         // LD A,(C)
-        case 0xF2: A = memory.read(0xFF00 | C); break;
+        case 0xF2: A = read(0xFF00 | C); break;
 
         // LD (C),A
-        case 0xE2: memory.write(0xFF00 | C, A); break;
+        case 0xE2: write(0xFF00 | C, A); break;
 
         // LDH A,(n)
-        case 0xF0: A = memory.read(0xFF00 | readByte()); break;
+        case 0xF0: A = read(0xFF00 | readByte()); break;
 
         // LDH (n),A
-        case 0xE0: memory.write(0xFF00 | readByte(), A); break;
+        case 0xE0: write(0xFF00 | readByte(), A); break;
 
         // LD A,(nn)
-        case 0xFA: A = memory.read(readb16()); break;
+        case 0xFA: A = read(readb16()); break;
 
         // LD (nn),A
-        case 0xEA: memory.write(readb16(), A); break;
+        case 0xEA: write(readb16(), A); break;
 
         // LD A,(HLI)
-        case 0x2A: A = memory.read(HL++); break;
+        case 0x2A: A = read(HL++); break;
 
         // LD A,(HLD)
-        case 0x3A: A = memory.read(HL--); break;
+        case 0x3A: A = read(HL--); break;
 
         // LD (BC),A
-        case 0x02: memory.write(BC, A); break;
+        case 0x02: write(BC, A); break;
 
         // LD (DE),A
-        case 0x12: memory.write(DE, A); break;
+        case 0x12: write(DE, A); break;
 
         // LD (HLI),A
-        case 0x22: memory.write(HL++, A); break;
+        case 0x22: write(HL++, A); break;
 
         // LD (HLD),A
-        case 0x32: memory.write(HL--, A); break;
+        case 0x32: write(HL--, A); break;
 
         // 16-Bit Transfer Instructions
         // LD dd,nn
@@ -566,7 +558,7 @@ void CPU::cycle() {
         case 0x31: SP = readb16(); break;
 
         // LD SP,HL
-        case 0xF9: SP = HL; break;
+        case 0xF9: SP = HL; tick(); break;
 
         // PUSH nn
         case 0xC5: push(BC); break;
@@ -585,13 +577,14 @@ void CPU::cycle() {
             e = readByte();
             HL = SP + e;
             F = HALF_S(SP, e) | CARRY_S(SP, e);
+            tick();
             break;
 
         // LD (nn),SP
         case 0x08:
             nn = readb16();
-            memory.write(nn, SP & 0x00FF);
-            memory.write(nn+1, SP >> 8);
+            write(nn, SP & 0x00FF);
+            write(nn+1, SP >> 8);
             break;
 
         // 8-Bit Arithmetic and Logical Operation Instructions
@@ -608,7 +601,7 @@ void CPU::cycle() {
         case 0xC6: ADD(readByte()); break;
 
         // ADD A,(HL)
-        case 0x86: ADD(memory.read(HL)); break;
+        case 0x86: ADD(read(HL)); break;
 
         // ADC A,r
         case 0x88: ADC(B); break;
@@ -623,7 +616,7 @@ void CPU::cycle() {
         case 0xCE: ADC(readByte()); break;
 
         // ADC A,(HL)
-        case 0x8E: ADC(memory.read(HL)); break;
+        case 0x8E: ADC(read(HL)); break;
 
         // SUB r
         case 0x90: SUB(B); break;
@@ -638,7 +631,7 @@ void CPU::cycle() {
         case 0xD6: SUB(readByte()); break;
 
         // SUB (HL)
-        case 0x96: SUB(memory.read(HL)); break;
+        case 0x96: SUB(read(HL)); break;
 
         // SBC r
         case 0x98: SBC(B); break;
@@ -653,7 +646,7 @@ void CPU::cycle() {
         case 0xDE: SBC(readByte()); break;
 
         // SBC (HL)
-        case 0x9E: SBC(memory.read(HL)); break;
+        case 0x9E: SBC(read(HL)); break;
 
         // AND r
         case 0xA0: AND(B); break;
@@ -668,7 +661,7 @@ void CPU::cycle() {
         case 0xE6: AND(readByte()); break;
 
         // AND (HL)
-        case 0xA6: AND(memory.read(HL)); break;
+        case 0xA6: AND(read(HL)); break;
 
         // OR r
         case 0xB0: OR(B); break;
@@ -683,7 +676,7 @@ void CPU::cycle() {
         case 0xF6: OR(readByte()); break;
 
         // OR (HL)
-        case 0xB6: OR(memory.read(HL)); break;
+        case 0xB6: OR(read(HL)); break;
 
         // XOR r
         case 0xA8: XOR(B); break;
@@ -698,7 +691,7 @@ void CPU::cycle() {
         case 0xEE: XOR(readByte()); break;
 
         // XOR (HL)
-        case 0xAE: XOR(memory.read(HL)); break;
+        case 0xAE: XOR(read(HL)); break;
 
         // CP r
         case 0xB8: CP(B); break;
@@ -713,7 +706,7 @@ void CPU::cycle() {
         case 0xFE: CP(readByte()); break;
 
         // CP (HL)
-        case 0xBE: CP(memory.read(HL)); break;
+        case 0xBE: CP(read(HL)); break;
 
         // INC,r
         case 0x04: B++; INC(B); break;
@@ -725,7 +718,7 @@ void CPU::cycle() {
         case 0x3C: A++; INC(A); break;
 
         // INC,(HL)
-        case 0x34: memory.write(HL, memory.read(HL)+1); INC(memory.read(HL)); break;
+        case 0x34: write(HL, read(HL)+1); INC(memory.read(HL)); break;
 
         // DEC,r
         case 0x05: DEC(B); B--; break;
@@ -737,7 +730,7 @@ void CPU::cycle() {
         case 0x3D: DEC(A); A--; break;
 
         // DEC,(HL)
-        case 0x35: DEC(memory.read(HL)); memory.write(HL, memory.read(HL)-1); break;
+        case 0x35: DEC(memory.read(HL)); write(HL, read(HL)-1); break;
 
         // 16-Bit Arithmetic Operation Instructions
         // ADD HL,BC
@@ -757,31 +750,33 @@ void CPU::cycle() {
             e = readByte();
             F = HALF_S(SP, e) | CARRY_S(SP, e);
             SP += e;
+            tick();
+            tick();
             break;
 
         // INC BC
-        case 0x03: BC++; break;
+        case 0x03: BC++; tick(); break;
 
         // INC DE
-        case 0x13: DE++; break;
+        case 0x13: DE++; tick(); break;
         
         // INC HL
-        case 0x23: HL++; break;
+        case 0x23: HL++; tick(); break;
 
         // INC SP
-        case 0x33: SP++; break;
+        case 0x33: SP++; tick(); break;
 
         // DEC BC
-        case 0x0B: BC--; break;
+        case 0x0B: BC--; tick(); break;
 
         // DEC DE
-        case 0x1B: DE--; break;
+        case 0x1B: DE--; tick(); break;
 
         // DEC HL
-        case 0x2B: HL--; break;
+        case 0x2B: HL--; tick(); break;
 
         // DEC SP
-        case 0x3B: SP--; break;
+        case 0x3B: SP--; tick(); break;
 
         // Rotate Shift Instructions
         // RLCA
@@ -798,7 +793,8 @@ void CPU::cycle() {
 
         // CB Prefix
         case 0xCB:
-            switch (readByte()) {
+            opcode = readByte();
+            switch (opcode) {
                 // Rotate Shift Instructions
                 // RLC
                 case 0x00: B = RLC(B); break;
@@ -807,7 +803,7 @@ void CPU::cycle() {
                 case 0x03: E = RLC(E); break;
                 case 0x04: H = RLC(H); break;
                 case 0x05: L = RLC(L); break;
-                case 0x06: memory.write(HL, RLC(memory.read(HL))); break;
+                case 0x06: write(HL, RLC(read(HL))); break;
                 case 0x07: A = RLC(A); break;
 
                 // RL
@@ -817,7 +813,7 @@ void CPU::cycle() {
                 case 0x13: E = RL(E); break;
                 case 0x14: H = RL(H); break;
                 case 0x15: L = RL(L); break;
-                case 0x16: memory.write(HL, RL(memory.read(HL))); break;
+                case 0x16: write(HL, RL(read(HL))); break;
                 case 0x17: A = RL(A); break;
 
                 // RRC
@@ -827,7 +823,7 @@ void CPU::cycle() {
                 case 0x0B: E = RRC(E); break;
                 case 0x0C: H = RRC(H); break;
                 case 0x0D: L = RRC(L); break;
-                case 0x0E: memory.write(HL, RRC(memory.read(HL))); break;
+                case 0x0E: write(HL, RRC(read(HL))); break;
                 case 0x0F: A = RRC(A); break;
 
                 // RR
@@ -837,7 +833,7 @@ void CPU::cycle() {
                 case 0x1B: E = RR(E); break;
                 case 0x1C: H = RR(H); break;
                 case 0x1D: L = RR(L); break;
-                case 0x1E: memory.write(HL, RR(memory.read(HL))); break;
+                case 0x1E: write(HL, RR(read(HL))); break;
                 case 0x1F: A = RR(A); break;
 
                 // SLA
@@ -847,7 +843,7 @@ void CPU::cycle() {
                 case 0x23: E = SLA(E); break;
                 case 0x24: H = SLA(H); break;
                 case 0x25: L = SLA(L); break;
-                case 0x26: memory.write(HL, SLA(memory.read(HL))); break;
+                case 0x26: write(HL, SLA(read(HL))); break;
                 case 0x27: A = SLA(A); break;
 
                 // SRA
@@ -857,7 +853,7 @@ void CPU::cycle() {
                 case 0x2B: E = SRA(E); break;
                 case 0x2C: H = SRA(H); break;
                 case 0x2D: L = SRA(L); break;
-                case 0x2E: memory.write(HL, SRA(memory.read(HL))); break;
+                case 0x2E: write(HL, SRA(read(HL))); break;
                 case 0x2F: A = SRA(A); break;
 
                 // SRL
@@ -867,7 +863,7 @@ void CPU::cycle() {
                 case 0x3B: E = SRL(E); break;
                 case 0x3C: H = SRL(H); break;
                 case 0x3D: L = SRL(L); break;
-                case 0x3E: memory.write(HL, SRL(memory.read(HL))); break;
+                case 0x3E: write(HL, SRL(read(HL))); break;
                 case 0x3F: A = SRL(A); break;
 
                 // SWAP
@@ -877,7 +873,7 @@ void CPU::cycle() {
                 case 0x33: E = SWAP(E); break;
                 case 0x34: H = SWAP(H); break;
                 case 0x35: L = SWAP(L); break;
-                case 0x36: memory.write(HL, SWAP(memory.read(HL))); break;
+                case 0x36: write(HL, SWAP(read(HL))); break;
                 case 0x37: A = SWAP(A); break;
 
                 // Bit Operations
@@ -888,7 +884,7 @@ void CPU::cycle() {
                 case 0x43: BIT(E, 0); break;
                 case 0x44: BIT(H, 0); break;
                 case 0x45: BIT(L, 0); break;
-                case 0x46: BIT(memory.read(HL), 0); break;
+                case 0x46: BIT(read(HL), 0); break;
                 case 0x47: BIT(A, 0); break;
 
                 // BIT 1,r
@@ -898,7 +894,7 @@ void CPU::cycle() {
                 case 0x4B: BIT(E, 1); break;
                 case 0x4C: BIT(H, 1); break;
                 case 0x4D: BIT(L, 1); break;
-                case 0x4E: BIT(memory.read(HL), 1); break;
+                case 0x4E: BIT(read(HL), 1); break;
                 case 0x4F: BIT(A, 1); break;
 
                 // BIT 2,r
@@ -908,7 +904,7 @@ void CPU::cycle() {
                 case 0x53: BIT(E, 2); break;
                 case 0x54: BIT(H, 2); break;
                 case 0x55: BIT(L, 2); break;
-                case 0x56: BIT(memory.read(HL), 2); break;
+                case 0x56: BIT(read(HL), 2); break;
                 case 0x57: BIT(A, 2); break;
 
                 // BIT 3,r
@@ -918,7 +914,7 @@ void CPU::cycle() {
                 case 0x5B: BIT(E, 3); break;
                 case 0x5C: BIT(H, 3); break;
                 case 0x5D: BIT(L, 3); break;
-                case 0x5E: BIT(memory.read(HL), 3); break;
+                case 0x5E: BIT(read(HL), 3); break;
                 case 0x5F: BIT(A, 3); break;
 
                 // BIT 4,r
@@ -928,7 +924,7 @@ void CPU::cycle() {
                 case 0x63: BIT(E, 4); break;
                 case 0x64: BIT(H, 4); break;
                 case 0x65: BIT(L, 4); break;
-                case 0x66: BIT(memory.read(HL), 4); break;
+                case 0x66: BIT(read(HL), 4); break;
                 case 0x67: BIT(A, 4); break;
 
                 // BIT 5,r
@@ -938,7 +934,7 @@ void CPU::cycle() {
                 case 0x6B: BIT(E, 5); break;
                 case 0x6C: BIT(H, 5); break;
                 case 0x6D: BIT(L, 5); break;
-                case 0x6E: BIT(memory.read(HL), 5); break;
+                case 0x6E: BIT(read(HL), 5); break;
                 case 0x6F: BIT(A, 5); break;
 
                 // BIT 6,r
@@ -948,7 +944,7 @@ void CPU::cycle() {
                 case 0x73: BIT(E, 6); break;
                 case 0x74: BIT(H, 6); break;
                 case 0x75: BIT(L, 6); break;
-                case 0x76: BIT(memory.read(HL), 6); break;
+                case 0x76: BIT(read(HL), 6); break;
                 case 0x77: BIT(A, 6); break;
 
                 // BIT 7,r
@@ -958,7 +954,7 @@ void CPU::cycle() {
                 case 0x7B: BIT(E, 7); break;
                 case 0x7C: BIT(H, 7); break;
                 case 0x7D: BIT(L, 7); break;
-                case 0x7E: BIT(memory.read(HL), 7); break;
+                case 0x7E: BIT(read(HL), 7); break;
                 case 0x7F: BIT(A, 7); break;
 
                 // RES 0,r
@@ -968,7 +964,7 @@ void CPU::cycle() {
                 case 0x83: E = RES(E, 0); break;
                 case 0x84: H = RES(H, 0); break;
                 case 0x85: L = RES(L, 0); break;
-                case 0x86: memory.write(HL, RES(memory.read(HL), 0)); break;
+                case 0x86: write(HL, RES(read(HL), 0)); break;
                 case 0x87: A = RES(A, 0); break;
 
                 // RES 1,r
@@ -978,7 +974,7 @@ void CPU::cycle() {
                 case 0x8B: E = RES(E, 1); break;
                 case 0x8C: H = RES(H, 1); break;
                 case 0x8D: L = RES(L, 1); break;
-                case 0x8E: memory.write(HL, RES(memory.read(HL), 1)); break;
+                case 0x8E: write(HL, RES(read(HL), 1)); break;
                 case 0x8F: A = RES(A, 1); break;
 
                 // RES 2,r
@@ -988,7 +984,7 @@ void CPU::cycle() {
                 case 0x93: E = RES(E, 2); break;
                 case 0x94: H = RES(H, 2); break;
                 case 0x95: L = RES(L, 2); break;
-                case 0x96: memory.write(HL, RES(memory.read(HL), 2)); break;
+                case 0x96: write(HL, RES(read(HL), 2)); break;
                 case 0x97: A = RES(A, 2); break;
 
                 // RES 3,r
@@ -998,7 +994,7 @@ void CPU::cycle() {
                 case 0x9B: E = RES(E, 3); break;
                 case 0x9C: H = RES(H, 3); break;
                 case 0x9D: L = RES(L, 3); break;
-                case 0x9E: memory.write(HL, RES(memory.read(HL), 3)); break;
+                case 0x9E: write(HL, RES(read(HL), 3)); break;
                 case 0x9F: A = RES(A, 3); break;
 
                 // RES 4,r
@@ -1008,7 +1004,7 @@ void CPU::cycle() {
                 case 0xA3: E = RES(E, 4); break;
                 case 0xA4: H = RES(H, 4); break;
                 case 0xA5: L = RES(L, 4); break;
-                case 0xA6: memory.write(HL, RES(memory.read(HL), 4)); break;
+                case 0xA6: write(HL, RES(read(HL), 4)); break;
                 case 0xA7: A = RES(A, 4); break;
 
                 // RES 5,r
@@ -1018,7 +1014,7 @@ void CPU::cycle() {
                 case 0xAB: E = RES(E, 5); break;
                 case 0xAC: H = RES(H, 5); break;
                 case 0xAD: L = RES(L, 5); break;
-                case 0xAE: memory.write(HL, RES(memory.read(HL), 5)); break;
+                case 0xAE: write(HL, RES(read(HL), 5)); break;
                 case 0xAF: A = RES(A, 5); break;
 
                 // RES 6,r
@@ -1028,7 +1024,7 @@ void CPU::cycle() {
                 case 0xB3: E = RES(E, 6); break;
                 case 0xB4: H = RES(H, 6); break;
                 case 0xB5: L = RES(L, 6); break;
-                case 0xB6: memory.write(HL, RES(memory.read(HL), 6)); break;
+                case 0xB6: write(HL, RES(read(HL), 6)); break;
                 case 0xB7: A = RES(A, 6); break;
 
                 // RES 7,r
@@ -1038,7 +1034,7 @@ void CPU::cycle() {
                 case 0xBB: E = RES(E, 7); break;
                 case 0xBC: H = RES(H, 7); break;
                 case 0xBD: L = RES(L, 7); break;
-                case 0xBE: memory.write(HL, RES(memory.read(HL), 7)); break;
+                case 0xBE: write(HL, RES(read(HL), 7)); break;
                 case 0xBF: A = RES(A, 7); break;
 
                 // SET 0,r
@@ -1048,7 +1044,7 @@ void CPU::cycle() {
                 case 0xC3: E = SET(E, 0); break;
                 case 0xC4: H = SET(H, 0); break;
                 case 0xC5: L = SET(L, 0); break;
-                case 0xC6: memory.write(HL, SET(memory.read(HL), 0)); break;
+                case 0xC6: write(HL, SET(read(HL), 0)); break;
                 case 0xC7: A = SET(A, 0); break;
 
                 // SET 1,r
@@ -1058,7 +1054,7 @@ void CPU::cycle() {
                 case 0xCB: E = SET(E, 1); break;
                 case 0xCC: H = SET(H, 1); break;
                 case 0xCD: L = SET(L, 1); break;
-                case 0xCE: memory.write(HL, SET(memory.read(HL), 1)); break;
+                case 0xCE: write(HL, SET(read(HL), 1)); break;
                 case 0xCF: A = SET(A, 1); break;
 
                 // SET 2,r
@@ -1068,7 +1064,7 @@ void CPU::cycle() {
                 case 0xD3: E = SET(E, 2); break;
                 case 0xD4: H = SET(H, 2); break;
                 case 0xD5: L = SET(L, 2); break;
-                case 0xD6: memory.write(HL, SET(memory.read(HL), 2)); break;
+                case 0xD6: write(HL, SET(read(HL), 2)); break;
                 case 0xD7: A = SET(A, 2); break;
 
                 // SET 3,r
@@ -1078,7 +1074,7 @@ void CPU::cycle() {
                 case 0xDB: E = SET(E, 3); break;
                 case 0xDC: H = SET(H, 3); break;
                 case 0xDD: L = SET(L, 3); break;
-                case 0xDE: memory.write(HL, SET(memory.read(HL), 3)); break;
+                case 0xDE: write(HL, SET(read(HL), 3)); break;
                 case 0xDF: A = SET(A, 3); break;
 
                 // SET 4,r
@@ -1088,7 +1084,7 @@ void CPU::cycle() {
                 case 0xE3: E = SET(E, 4); break;
                 case 0xE4: H = SET(H, 4); break;
                 case 0xE5: L = SET(L, 4); break;
-                case 0xE6: memory.write(HL, SET(memory.read(HL), 4)); break;
+                case 0xE6: write(HL, SET(read(HL), 4)); break;
                 case 0xE7: A = SET(A, 4); break;
 
                 // SET 5,r
@@ -1098,7 +1094,7 @@ void CPU::cycle() {
                 case 0xEB: E = SET(E, 5); break;
                 case 0xEC: H = SET(H, 5); break;
                 case 0xED: L = SET(L, 5); break;
-                case 0xEE: memory.write(HL, SET(memory.read(HL), 5)); break;
+                case 0xEE: write(HL, SET(read(HL), 5)); break;
                 case 0xEF: A = SET(A, 5); break;
 
                 // SET 6,r
@@ -1108,7 +1104,7 @@ void CPU::cycle() {
                 case 0xF3: E = SET(E, 6); break;
                 case 0xF4: H = SET(H, 6); break;
                 case 0xF5: L = SET(L, 6); break;
-                case 0xF6: memory.write(HL, SET(memory.read(HL), 6)); break;
+                case 0xF6: write(HL, SET(read(HL), 6)); break;
                 case 0xF7: A = SET(A, 6); break;
 
                 // SET 7,r
@@ -1118,7 +1114,7 @@ void CPU::cycle() {
                 case 0xFB: E = SET(E, 7); break;
                 case 0xFC: H = SET(H, 7); break;
                 case 0xFD: L = SET(L, 7); break;
-                case 0xFE: memory.write(HL, SET(memory.read(HL), 7)); break;
+                case 0xFE: write(HL, SET(read(HL), 7)); break;
                 case 0xFF: A = SET(A, 7); break;
 
                 default: break;
@@ -1127,7 +1123,7 @@ void CPU::cycle() {
 
         // Jump Instructions
         // JP nn
-        case 0xC3: PC = readb16(); break;
+        case 0xC3: JP(true); break;
 
         // JP NZ,nn
         case 0xC2: JP(!ZERO_F()); break;
@@ -1142,10 +1138,7 @@ void CPU::cycle() {
         case 0xDA: JP(CARRY_F()); break;
 
         // JR e
-        case 0x18:
-            e = readByte();
-            PC += e;
-            break;
+        case 0x18: JR(true); break;
 
         // JR NZ,e
         case 0x20: JR(!ZERO_F()); break;
@@ -1164,7 +1157,7 @@ void CPU::cycle() {
 
         // Call and Return Instructions
         // CALL nn
-        case 0xCD: nn = readb16(); push(PC); PC = nn; break;
+        case 0xCD: CALL(true); break;
 
         // CALL NZ,nn
         case 0xC4: CALL(!ZERO_F()); break;
@@ -1179,10 +1172,10 @@ void CPU::cycle() {
         case 0xDC: CALL(CARRY_F()); break;
 
         // RET
-        case 0xC9: PC = pop(); break;
+        case 0xC9: PC = pop(); tick(); break;
 
         // RETI
-        case 0xD9: PC = pop(); IME = 1; break;
+        case 0xD9: PC = pop(); IME = 1; tick(); break;
 
         // RET NZ
         case 0xC0: RET(!ZERO_F()); break;
@@ -1229,17 +1222,23 @@ void CPU::cycle() {
         // CCF
         case 0x3F: F = ZERO_F() | (CARRY_F() ^ (1 << 4)); break;
 
-        // SCFs
+        // SCF
         case 0x37: F = ZERO_F() | CARRY; break;
 
         // DI
-        case 0xF3: disableIRQ = 2; break;
+        case 0xF3: IRQ = 0; IME = 0; break;
 
         // EI
-        case 0xFB: enableIRQ = 2; break;
+        case 0xFB: IRQ = 2; break;
 
         // HALT
-        case 0x76: halted = 1; break;
+        case 0x76:
+            if (IME || interrupt == 0) {
+                halted = 1;
+            } else {
+                haltBug = 1;
+            }
+            break;
 
         // STOP
         case 0x10: break;

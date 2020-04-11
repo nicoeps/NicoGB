@@ -1,26 +1,25 @@
-#include "mbc.hpp"
+#pragma once
+
+#include <cstdint>
+#include <vector>
+#include <string>
+
+class MBC;
 
 class Cartridge {
-    private:
     public:
-        long cartridgeSize;
-        char* cartridgeData;
-        char* cartridgeRAM;
-        bool loaded = false;
-
-        uint8_t title[16];
-        uint8_t cartridgeType = 0;
-        int romSize = 0;
-        uint8_t romBank = 0x1;
-        int ramSize = 0;
-        uint8_t ramBank = 0x0;
-        bool ramEnable = false;
-        uint8_t modeSelect = 0;
-        
-        void setRomBank(uint8_t n);
+        std::vector<char> title;
+        bool loaded;
         void load(std::string path);
         uint8_t read(uint16_t address);
         void write(uint16_t address, uint8_t n);
+        Cartridge();
 
-        MBC *mbc = new MBC0(&cartridgeData, &cartridgeRAM, romSize, ramSize);
+    private:
+        MBC* mbc;
+        std::vector<uint8_t> cartridgeROM;
+        std::vector<uint8_t> cartridgeRAM;
+        uint8_t cartridgeType;
+        size_t romSize;
+        int ramSize;
 };

@@ -1,3 +1,7 @@
+#pragma once
+
+#include <cstdint>
+
 union RegisterPair {
     struct {
         uint8_t low;
@@ -8,10 +12,20 @@ union RegisterPair {
     };
 };
 
+class Memory;
+class PPU;
+
 class CPU {
     public:
         Memory& memory;
+        PPU& ppu;
+        long long totalCycles;
+        bool run;
+        void init();
+        void cycle();
+        CPU(Memory& memory, PPU& ppu);
 
+    private:
         RegisterPair af{}, bc{}, de{}, hl{};
 
         uint16_t& AF = af.value; uint8_t& A = af.high; uint8_t& F = af.low;
@@ -19,67 +33,16 @@ class CPU {
         uint16_t& DE = de.value; uint8_t& D = de.high; uint8_t& E = de.low;
         uint16_t& HL = hl.value; uint8_t& H = hl.high; uint8_t& L = hl.low;
 
-        uint16_t SP = 0;
-        uint16_t PC = 0;
-        uint8_t opcode = 0;
+        uint16_t SP;
+        uint16_t PC;
+        uint8_t opcode;
 
-        uint8_t V_BLANK = 0x01;
-        uint8_t TIMER = 0x04;
+        bool halted;
+        bool haltBug;
+        uint8_t IRQ;
+        bool IME;
 
-        long long totalCycles = 0;
-        uint8_t cycles = 0;
-
-        uint8_t timer = 0;
-        uint8_t prevTimer = 0;
-
-        uint8_t divider = 0;
-        uint8_t prevDivider = 0;
-
-        bool halted = 0;
-
-        uint8_t enableIRQ = 0;
-        uint8_t disableIRQ = 0;
-        bool IME = 0;
-
-        bool run = true;
-
-        uint8_t opCycles[0x100] = {
-            1,3,2,2,1,1,2,1,5,2,2,2,1,1,2,1,
-            0,3,2,2,1,1,2,1,3,2,2,2,1,1,2,1,
-            2,3,2,2,1,1,2,1,2,2,2,2,1,1,2,1,
-            2,3,2,2,3,3,3,1,2,2,2,2,1,1,2,1,
-            1,1,1,1,1,1,2,1,1,1,1,1,1,1,2,1,
-            1,1,1,1,1,1,2,1,1,1,1,1,1,1,2,1,
-            1,1,1,1,1,1,2,1,1,1,1,1,1,1,2,1,
-            2,2,2,2,2,2,0,2,1,1,1,1,1,1,2,1,
-            1,1,1,1,1,1,2,1,1,1,1,1,1,1,2,1,
-            1,1,1,1,1,1,2,1,1,1,1,1,1,1,2,1,
-            1,1,1,1,1,1,2,1,1,1,1,1,1,1,2,1,
-            1,1,1,1,1,1,2,1,1,1,1,1,1,1,2,1,
-            2,3,3,4,3,4,2,4,2,4,3,0,3,6,2,4,
-            2,3,3,0,3,4,2,4,2,4,3,0,3,0,2,4,
-            3,3,2,0,0,4,2,4,4,1,4,0,0,0,2,4,
-            3,3,2,1,0,4,2,4,3,2,4,1,0,0,2,4
-        };
-        
-        uint8_t cbCycles[0x100] = {
-            2,2,2,2,2,2,4,2,2,2,2,2,2,2,4,2,
-            2,2,2,2,2,2,4,2,2,2,2,2,2,2,4,2,
-            2,2,2,2,2,2,4,2,2,2,2,2,2,2,4,2,
-            2,2,2,2,2,2,4,2,2,2,2,2,2,2,4,2,
-            2,2,2,2,2,2,3,2,2,2,2,2,2,2,3,2,
-            2,2,2,2,2,2,3,2,2,2,2,2,2,2,3,2,
-            2,2,2,2,2,2,3,2,2,2,2,2,2,2,3,2,
-            2,2,2,2,2,2,3,2,2,2,2,2,2,2,3,2,
-            2,2,2,2,2,2,4,2,2,2,2,2,2,2,4,2,
-            2,2,2,2,2,2,4,2,2,2,2,2,2,2,4,2,
-            2,2,2,2,2,2,4,2,2,2,2,2,2,2,4,2,
-            2,2,2,2,2,2,4,2,2,2,2,2,2,2,4,2,
-            2,2,2,2,2,2,4,2,2,2,2,2,2,2,4,2,
-            2,2,2,2,2,2,4,2,2,2,2,2,2,2,4,2,
-            2,2,2,2,2,2,4,2,2,2,2,2,2,2,4,2,
-            2,2,2,2,2,2,4,2,2,2,2,2,2,2,4,2
-        };
+        void tick();
 
         uint8_t ZERO_F();
         uint8_t SUB_F();
@@ -105,7 +68,8 @@ class CPU {
         uint8_t HALF_Sbc(uint8_t a, uint8_t b);
         uint8_t CARRY_Sbc(uint8_t a, uint8_t b);
 
-        void cycle();
+        uint8_t read(uint16_t address);
+        void write(uint16_t address, uint8_t n);
 
         uint8_t readByte();
         uint16_t readb16();
@@ -149,36 +113,4 @@ class CPU {
 
         void CALL(bool flag);
         void RET (bool flag);
-
-        CPU(Memory& memory) : memory(memory) {}
-
-        void init() {
-            AF = 0; // AAAAAAAAZNHC0000
-            BC = 0; // BBBBBBBBCCCCCCCC
-            DE = 0; // DDDDDDDDEEEEEEEE
-            HL = 0; // HHHHHHHHLLLLLLLL
-            SP = 0;
-            PC = 0;
-            opcode = 0;
-
-            V_BLANK = 0x01;
-            TIMER = 0x04;
-
-            totalCycles = 0;
-            cycles = 0;
-
-            timer = 0;
-            prevTimer = 0;
-
-            divider = 0;
-            prevDivider = 0;
-
-            halted = 0;
-
-            enableIRQ = 0;
-            disableIRQ = 0;
-            IME = 0;
-
-            run = true;
-        }
 };

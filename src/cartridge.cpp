@@ -1,98 +1,83 @@
-#include <string>
-#include <cstdint>
 #include <fstream>
-#include <cstring>
 
 #include "cartridge.hpp"
+#include "mbc.hpp"
+
+Cartridge::Cartridge() {
+    cartridgeRAM.reserve(0);
+    title.reserve(16);
+    loaded = false;
+    cartridgeType = 0;
+    romSize = 0;
+    ramSize = 0;
+}
 
 void Cartridge::load(std::string path) {
-    std::ifstream cartridgeFile;
-    cartridgeFile.open(path, std::ifstream::binary);
+    std::ifstream cartridgeFile(path, std::ifstream::binary);
 
-    if (cartridgeFile) {
+    if (cartridgeFile.is_open()) {
         cartridgeFile.seekg(0, cartridgeFile.end);
-        cartridgeSize = (unsigned long) cartridgeFile.tellg();
+        romSize = cartridgeFile.tellg();
         cartridgeFile.seekg(0, cartridgeFile.beg);
-
-        cartridgeData = new char [cartridgeSize];
-
-        cartridgeFile.read(cartridgeData, cartridgeSize);
-        loaded = true;
+        cartridgeFile.clear();
+        cartridgeROM.resize(romSize);
+        cartridgeFile.read((char*) cartridgeROM.data(), romSize);
         cartridgeFile.close();
-    
+        loaded = true;
+
+        cartridgeType = cartridgeROM[0x0147];
+        switch (cartridgeROM[0x0149]) {
+            case 0:  ramSize = 1;         break;
+            case 1:  ramSize = 2048;      break;
+            case 2:  ramSize = 8192;      break;
+            case 3:  ramSize = 4 * 8192;  break;
+            case 4:  ramSize = 16 * 8192; break;
+            case 5:  ramSize = 8 * 8192;  break;
+            default: ramSize = 1;         break;
+        }
+
+        cartridgeRAM.resize(ramSize);
+        std::fill_n(cartridgeRAM.begin(), ramSize, 0);
+
         // Title
+        std::fill_n(title.begin(), 16, 0);
         for (int i = 0; i < 16; ++i) {
-            printf("%c", cartridgeData[0x0134+i]);
+            title[i] = cartridgeROM[0x0134+i];
         }
-        printf("\n");
-        cartridgeType = cartridgeData[0x0147];
-
-        romSize = cartridgeSize;
-
-        switch (cartridgeData[0x0149]) {
-            case 0:
-                ramSize = 1;
-                break;
-            
-            case 1:
-                ramSize = 2048;
-                break;
-            
-            case 2:
-                ramSize = 8192;
-                break;
-
-            case 3:
-                ramSize = 4 * 8192;
-                break;
-
-            case 4:
-                ramSize = 16 * 8192;
-                break;
-
-            case 5:
-                ramSize = 8 * 8192;
-                break;
-        }
-    
-        printf("0x%X 0x%X 0x%X\n", cartridgeType, cartridgeData[0x0148],  cartridgeData[0x0149]);
-
-        cartridgeRAM = new char [ramSize];
-        memset(cartridgeRAM, 0, ramSize);
 
         switch (cartridgeType) {
             // ROM
             case 0x00:
             case 0x08:
             case 0x09:
-                mbc = new MBC0(&cartridgeData, &cartridgeRAM, romSize, ramSize);
+                mbc = new MBC0(cartridgeROM, cartridgeRAM);
                 break;
 
             // MBC1
             case 0x01:
             case 0x02:
             case 0x03:
-                mbc = new MBC1(&cartridgeData, &cartridgeRAM, romSize, ramSize);
+                mbc = new MBC1(cartridgeROM, cartridgeRAM, romSize, ramSize);
                 break;
 
-            // // MBC2
+            // MBC2
             // case 0x05:
             // case 0x06:
                 // break;
-    
-            // // MMM01
+
+            // MMM01
             // case 0x0B:
             // case 0x0C:
             // case 0x0D:
                 // break;
 
-            /// MBC3
+            // MBC3
             case 0x0F:
             case 0x10:
             case 0x11:
             case 0x12:
             case 0x13:
-                mbc = new MBC3(&cartridgeData, &cartridgeRAM, romSize, ramSize);
+                mbc = new MBC3(cartridgeROM, cartridgeRAM, romSize, ramSize);
                 break;
 
             // MBC5
@@ -102,21 +87,24 @@ void Cartridge::load(std::string path) {
             case 0x1C:
             case 0x1D:
             case 0x1E:
-                mbc = new MBC5(&cartridgeData, &cartridgeRAM, romSize, ramSize);
+                mbc = new MBC5(cartridgeROM, cartridgeRAM, romSize, ramSize);
                 break;
 
-            // // MBC6
+            // MBC6
             // case 0x20:
             //     break;
 
-            // // MBC7
+            // MBC7
             // case 0x22:
             //     break;
 
             default:
-                mbc = new MBC1(&cartridgeData, &cartridgeRAM, romSize, ramSize);
+                mbc = new MBC1(cartridgeROM, cartridgeRAM, romSize, ramSize);
                 break;
         }
+    } else {
+        loaded = false;
+        return;
     }
 }
 

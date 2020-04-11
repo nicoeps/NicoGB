@@ -1,9 +1,6 @@
-#include <cstdint>
-#include <string>
-#include <cstring>
-
 #include "mbc.hpp"
 
+// ROM
 uint8_t MBC0::read(uint16_t address) {
     if (address <= 0x7FFF) {
         return rom[address];
