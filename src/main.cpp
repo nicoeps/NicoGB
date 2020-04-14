@@ -62,15 +62,18 @@ void run(CPU& cpu) {
     std::string path;
     Key key;
 
+    bool speed = 0;
     auto last = millis();
     while (cpu.run) {
-        if (cpu.memory.cartridge.loaded && cpu.totalCycles < 69905) {
+        if (cpu.memory.cartridge.loaded && (cpu.totalCycles < 69905 || speed)) {
             cpu.cycle();
         }
 
         if (millis() - last >= 1000/60) {
             last = millis();
-            cpu.totalCycles = 0;
+            if (cpu.memory.cartridge.loaded && !speed) {
+                cpu.totalCycles -= 69905;
+            }
 
             SDL_UpdateTexture(texture, NULL, cpu.ppu.framebuffer.data(), 160 * sizeof(uint32_t));
             SDL_RenderClear(renderer);
@@ -94,6 +97,10 @@ void run(CPU& cpu) {
                         switch (event.key.keysym.sym) {
                             case SDLK_q: cpu.run = false; break;
                             case SDLK_r: init(cpu); break;
+                            case SDLK_SPACE:
+                                speed = !speed;
+                                cpu.totalCycles = 0;
+                                break;
                             default:
                                 key = getKey(event.key.keysym.sym);
                                 cpu.memory.joypad.keyDown(key);

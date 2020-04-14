@@ -3,8 +3,9 @@
 #include <cstdint>
 #include <vector>
 #include <string>
+#include <memory>
 
-class MBC;
+#include "mbc.hpp"
 
 class Cartridge {
     public:
@@ -16,7 +17,7 @@ class Cartridge {
         Cartridge();
 
     private:
-        MBC* mbc;
+        std::unique_ptr<MBC> mbc;
         std::vector<uint8_t> cartridgeROM;
         std::vector<uint8_t> cartridgeRAM;
         uint8_t cartridgeType;

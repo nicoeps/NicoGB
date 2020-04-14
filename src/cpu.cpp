@@ -18,7 +18,12 @@ const uint8_t JOYPAD = 0x10;
 const uint16_t IE = 0xFFFF;
 const uint16_t IF = 0xFF0F;
 
-CPU::CPU(Memory& memory, PPU& ppu) : memory(memory), ppu(ppu) {
+CPU::CPU(Memory& memory, PPU& ppu) :
+    memory(memory), ppu(ppu),
+    AF(af.value), A(af.high), F(af.low),
+    BC(bc.value), B(bc.high), C(bc.low),
+    DE(de.value), D(de.high), E(de.low),
+    HL(hl.value), H(hl.high), L(hl.low) {
     init();
 }
 

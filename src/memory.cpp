@@ -139,7 +139,7 @@ void Memory::write(uint16_t address, uint8_t n) {
             case 0xFF06: timer.tma = n; break;
             case 0xFF07: timer.tac = n | 0xF8; break;
             case 0xFF40: lcd.lcdc = n; break;
-            case 0xFF41: lcd.stat |= (n & 0x78) | 0x80; break;
+            case 0xFF41: lcd.stat = (lcd.stat & 0x7) | (n & 0x78) | 0x80; break;
             case 0xFF42: lcd.scy = n; break;
             case 0xFF43: lcd.scx = n; break;
             case 0xFF45: lcd.lyc = n; break;

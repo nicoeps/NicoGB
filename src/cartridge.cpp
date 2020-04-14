@@ -1,11 +1,11 @@
 #include <fstream>
 
 #include "cartridge.hpp"
-#include "mbc.hpp"
 
 Cartridge::Cartridge() {
-    cartridgeRAM.reserve(0);
-    title.reserve(16);
+    cartridgeROM = std::vector<uint8_t>();
+    cartridgeRAM = std::vector<uint8_t>();
+    title = std::vector<char>(16);
     loaded = false;
     cartridgeType = 0;
     romSize = 0;
@@ -50,14 +50,14 @@ void Cartridge::load(std::string path) {
             case 0x00:
             case 0x08:
             case 0x09:
-                mbc = new MBC0(cartridgeROM, cartridgeRAM);
+                mbc.reset(new MBC0(cartridgeROM, cartridgeRAM));
                 break;
 
             // MBC1
             case 0x01:
             case 0x02:
             case 0x03:
-                mbc = new MBC1(cartridgeROM, cartridgeRAM, romSize, ramSize);
+                mbc.reset(new MBC1(cartridgeROM, cartridgeRAM, romSize, ramSize));
                 break;
 
             // MBC2
@@ -77,7 +77,7 @@ void Cartridge::load(std::string path) {
             case 0x11:
             case 0x12:
             case 0x13:
-                mbc = new MBC3(cartridgeROM, cartridgeRAM, romSize, ramSize);
+                mbc.reset(new MBC3(cartridgeROM, cartridgeRAM, romSize, ramSize));
                 break;
 
             // MBC5
@@ -87,7 +87,7 @@ void Cartridge::load(std::string path) {
             case 0x1C:
             case 0x1D:
             case 0x1E:
-                mbc = new MBC5(cartridgeROM, cartridgeRAM, romSize, ramSize);
+                mbc.reset(new MBC5(cartridgeROM, cartridgeRAM, romSize, ramSize));
                 break;
 
             // MBC6
@@ -99,7 +99,7 @@ void Cartridge::load(std::string path) {
             //     break;
 
             default:
-                mbc = new MBC1(cartridgeROM, cartridgeRAM, romSize, ramSize);
+                mbc.reset(new MBC0(cartridgeROM, cartridgeRAM));
                 break;
         }
     } else {

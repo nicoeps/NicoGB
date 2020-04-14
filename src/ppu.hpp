@@ -15,17 +15,17 @@ class PPU {
     private:
         int totalCycles;
         bool interrupt;
-        uint8_t& lcdc = memory.lcd.lcdc;
-        uint8_t& stat = memory.lcd.stat;
-        uint8_t& scy = memory.lcd.scy;
-        uint8_t& scx = memory.lcd.scx;
-        uint8_t& ly = memory.lcd.ly;
-        uint8_t& lyc = memory.lcd.lyc;
-        uint8_t& bgp = memory.lcd.bgp;
-        uint8_t& obp0 = memory.lcd.obp0;
-        uint8_t& obp1 = memory.lcd.obp1;
-        uint8_t& wy = memory.lcd.wy;
-        uint8_t& wx = memory.lcd.wx;
+        uint8_t& lcdc;
+        uint8_t& stat;
+        uint8_t& scy;
+        uint8_t& scx;
+        uint8_t& ly;
+        uint8_t& lyc;
+        uint8_t& bgp;
+        uint8_t& obp0;
+        uint8_t& obp1;
+        uint8_t& wy;
+        uint8_t& wx;
 
         void checkInterrupt(uint8_t mode);
         void updateScanLine();

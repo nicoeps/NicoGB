@@ -1,8 +1,20 @@
 #include "memory.hpp"
 #include "ppu.hpp"
 
-PPU::PPU(Memory& memory) : memory(memory) {
-    framebuffer.reserve(160*144);
+PPU::PPU(Memory& memory) :
+    memory(memory),
+    lcdc(memory.lcd.lcdc),
+    stat(memory.lcd.stat),
+    scy(memory.lcd.scy),
+    scx(memory.lcd.scx),
+    ly(memory.lcd.ly),
+    lyc(memory.lcd.lyc),
+    bgp(memory.lcd.bgp),
+    obp0(memory.lcd.obp0),
+    obp1(memory.lcd.obp1),
+    wy(memory.lcd.wy),
+    wx(memory.lcd.wx) {
+    framebuffer = std::vector<uint32_t>(160*144);
     init();
 }
 
@@ -69,8 +81,7 @@ void PPU::updateScanLine() {
 
 std::vector<uint32_t> PPU::getPalette(uint8_t palette) {
     const std::vector<uint32_t> PALETTE = {0xfffff6d3, 0xfff9a875, 0xffeb6b6f, 0xff7c3f58};
-    std::vector<uint32_t> col;
-    col.reserve(4);
+    std::vector<uint32_t> col = {0, 0, 0, 0};
     for (int i = 0; i <= 6; i += 2) {
         switch ((palette >> i) & 0x3) {
             case 0:

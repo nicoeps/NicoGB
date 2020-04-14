@@ -28,10 +28,10 @@ class CPU {
     private:
         RegisterPair af{}, bc{}, de{}, hl{};
 
-        uint16_t& AF = af.value; uint8_t& A = af.high; uint8_t& F = af.low;
-        uint16_t& BC = bc.value; uint8_t& B = bc.high; uint8_t& C = bc.low;
-        uint16_t& DE = de.value; uint8_t& D = de.high; uint8_t& E = de.low;
-        uint16_t& HL = hl.value; uint8_t& H = hl.high; uint8_t& L = hl.low;
+        uint16_t& AF; uint8_t& A; uint8_t& F;
+        uint16_t& BC; uint8_t& B; uint8_t& C;
+        uint16_t& DE; uint8_t& D; uint8_t& E;
+        uint16_t& HL; uint8_t& H; uint8_t& L;
 
         uint16_t SP;
         uint16_t PC;
