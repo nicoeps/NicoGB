@@ -9,7 +9,7 @@
 
 class Cartridge {
     public:
-        std::vector<char> title;
+        std::string title;
         bool loaded;
         void load(std::string path);
         uint8_t read(uint16_t address);

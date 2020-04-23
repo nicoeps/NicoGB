@@ -1,14 +1,8 @@
-#include <thread>
 #include <chrono>
 
 #include "SDL2/SDL.h"
 
-#include "timer.hpp"
-#include "joypad.hpp"
-#include "cartridge.hpp"
-#include "memory.hpp"
-#include "ppu.hpp"
-#include "cpu.hpp"
+#include "nicogb.hpp"
 
 auto epoch = std::chrono::high_resolution_clock::from_time_t(0);
 
@@ -36,14 +30,7 @@ Key getKey(SDL_Keycode sym) {
     }
 }
 
-void init(CPU& cpu) {
-    cpu.init();
-    cpu.memory.timer.init();
-    cpu.memory.init();
-    cpu.ppu.init();
-}
-
-void run(CPU& cpu) {
+void run(NicoGB& nicogb) {
     const int SCALE = 4;
     const int WIDTH = 160;
     const int HEIGHT = 144;
@@ -55,27 +42,22 @@ void run(CPU& cpu) {
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, 0);
     SDL_Texture *texture = SDL_CreateTexture(renderer,
     SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 160, 144);
-    SDL_UpdateTexture(texture, NULL, cpu.ppu.framebuffer.data(), 160 * sizeof(uint32_t));
+    SDL_UpdateTexture(texture, NULL, nicogb.framebuffer.data(), 160 * sizeof(uint32_t));
 
     SDL_Event event;
     SDL_EventState(SDL_DROPFILE, SDL_ENABLE);
     std::string path;
     Key key;
 
-    bool speed = 0;
     auto last = millis();
-    while (cpu.run) {
-        if (cpu.memory.cartridge.loaded && (cpu.totalCycles < 69905 || speed)) {
-            cpu.cycle();
-        }
+    bool run = true;
+    while (run) {
+        nicogb.tick();
 
         if (millis() - last >= 1000/60) {
             last = millis();
-            if (cpu.memory.cartridge.loaded && !speed) {
-                cpu.totalCycles -= 69905;
-            }
 
-            SDL_UpdateTexture(texture, NULL, cpu.ppu.framebuffer.data(), 160 * sizeof(uint32_t));
+            SDL_UpdateTexture(texture, NULL, nicogb.framebuffer.data(), 160 * sizeof(uint32_t));
             SDL_RenderClear(renderer);
             SDL_RenderCopy(renderer, texture, NULL, NULL);
             SDL_RenderPresent(renderer);
@@ -83,34 +65,36 @@ void run(CPU& cpu) {
             while (SDL_PollEvent(&event)) {
                 switch (event.type) {
                     case SDL_QUIT:
-                        cpu.run = false;
+                        run = false;
                         break;
 
                     case SDL_DROPFILE:
-                        init(cpu);
                         path = event.drop.file;
-                        cpu.memory.cartridge.load(path);
-                        SDL_SetWindowTitle(window, (std::string("NicoGB - ") + cpu.memory.cartridge.title.data()).c_str());
+                        nicogb.load(path);
+                        SDL_SetWindowTitle(window, (std::string("NicoGB - ") + nicogb.title).c_str());
                         break;
 
                     case SDL_KEYDOWN:
                         switch (event.key.keysym.sym) {
-                            case SDLK_q: cpu.run = false; break;
-                            case SDLK_r: init(cpu); break;
+                            case SDLK_q:
+                                run = false;
+                                break;
+                            case SDLK_r:
+                                nicogb.init();
+                                break;
                             case SDLK_SPACE:
-                                speed = !speed;
-                                cpu.totalCycles = 0;
+                                nicogb.speed = !nicogb.speed;
                                 break;
                             default:
                                 key = getKey(event.key.keysym.sym);
-                                cpu.memory.joypad.keyDown(key);
+                                nicogb.keyDown(key);
                                 break;
                         }
                         break;
 
                     case SDL_KEYUP:
                         key = getKey(event.key.keysym.sym);
-                        cpu.memory.joypad.keyUp(key);
+                        nicogb.keyUp(key);
                         break;
 
                     default: break;
@@ -128,7 +112,7 @@ void run(CPU& cpu) {
 
 typedef std::tuple<std::string, std::string, std::string> testcase;
 
-std::string assert(CPU& cpu, testcase test) {
+std::string assert(NicoGB& nicogb, testcase test) {
     std::string output;
     std::string passed;
     std::string failed;
@@ -136,16 +120,17 @@ std::string assert(CPU& cpu, testcase test) {
 
     std::tie(passed, failed, rom) = test;
 
-    init(cpu);
-    cpu.memory.cartridge.load(rom);
-    if (!cpu.memory.cartridge.loaded) return rom + ": file not found";
+    nicogb.load(rom);
+    if (!nicogb.loaded) return rom + ": file not found";
 
     auto time = millis();
-    while (cpu.run) {
-        cpu.cycle();
-        if (cpu.memory.read(0xFF02) == 0x81) {
-            cpu.memory.write(0xFF02, 0);
-            output += cpu.memory.read(0xFF01);
+    bool run = true;
+    nicogb.speed = 1;
+    while (run) {
+        nicogb.tick();
+        if (nicogb.serialTransferRead() == 1) {
+            nicogb.serialTransferWrite(0);
+            output += nicogb.serialDataRead();
         }
         if (output.find(passed) != std::string::npos) {
             return rom + ": pass";
@@ -160,16 +145,11 @@ std::string assert(CPU& cpu, testcase test) {
 #endif
 
 int main() {
-    Timer timer;
-    Cartridge cartridge;
-    Joypad joypad;
-    Memory memory(cartridge, joypad, timer);
-    PPU ppu(memory);
-    CPU cpu(memory, ppu);
+    NicoGB nicogb;
 
 #ifndef TEST
 
-    run(cpu);
+    run(nicogb);
 
 #else
 
@@ -180,7 +160,7 @@ int main() {
     };
 
     for (auto test: tests) {
-        printf("%s\n", assert(cpu, test).c_str());
+        printf("%s\n", assert(nicogb, test).c_str());
     }
 
 #endif

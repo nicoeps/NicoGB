@@ -64,7 +64,10 @@ void CPU::tick() {
     }
     memory.timer.oldEdge = memory.timer.currentEdge();
 
-    memory.transfer();
+    if (!halted) {
+        memory.transfer();
+    }
+
     ppu.update();
 }
 

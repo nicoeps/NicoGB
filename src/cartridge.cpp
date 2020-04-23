@@ -5,7 +5,7 @@
 Cartridge::Cartridge() {
     cartridgeROM = std::vector<uint8_t>();
     cartridgeRAM = std::vector<uint8_t>();
-    title = std::vector<char>(16);
+    title = "";
     loaded = false;
     cartridgeType = 0;
     romSize = 0;
@@ -20,6 +20,11 @@ void Cartridge::load(std::string path) {
         romSize = cartridgeFile.tellg();
         cartridgeFile.seekg(0, cartridgeFile.beg);
         cartridgeFile.clear();
+        if (romSize < 32768 || romSize % 32768 != 0) {
+            loaded = false;
+            cartridgeFile.close();
+            return;
+        }
         cartridgeROM.resize(romSize);
         cartridgeFile.read((char*) cartridgeROM.data(), romSize);
         cartridgeFile.close();
@@ -39,11 +44,8 @@ void Cartridge::load(std::string path) {
         cartridgeRAM.resize(ramSize);
         std::fill_n(cartridgeRAM.begin(), ramSize, 0);
 
-        // Title
-        std::fill_n(title.begin(), 16, 0);
-        for (int i = 0; i < 16; ++i) {
-            title[i] = cartridgeROM[0x0134+i];
-        }
+        int titleSize = cartridgeROM[0x0143] & 0x80 ? 15 : 16; // CGB Flag
+        title.assign(&cartridgeROM[0x0134], &cartridgeROM[0x0134] + titleSize);
 
         switch (cartridgeType) {
             // ROM
