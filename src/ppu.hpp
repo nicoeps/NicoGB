@@ -27,6 +27,10 @@ class PPU {
         uint8_t& wy;
         uint8_t& wx;
 
+        int windowCounter;
+        std::vector<uint32_t> writebuffer;
+        std::vector<uint8_t> line;
+
         void checkInterrupt(uint8_t mode);
         void updateScanLine();
         std::vector<uint32_t> getPalette(uint8_t palette);

@@ -1,3 +1,6 @@
+#include <tuple>
+#include <algorithm>
+
 #include "memory.hpp"
 #include "ppu.hpp"
 
@@ -15,19 +18,25 @@ PPU::PPU(Memory& memory) :
     wy(memory.lcd.wy),
     wx(memory.lcd.wx) {
     framebuffer = std::vector<uint32_t>(160*144);
+    writebuffer = std::vector<uint32_t>(160*144);
+    line = std::vector<uint8_t>(160);
     init();
 }
 
 void PPU::init() {
     std::fill_n(framebuffer.begin(), 160*144, 0);
+    std::fill_n(writebuffer.begin(), 160*144, 0);
+    std::fill_n(line.begin(), 160, 0);
     totalCycles = 0;
     interrupt = false;
+    windowCounter = 0;
 }
 
 void PPU::update() {
     if ((lcdc & 0x80) == 0) {
         totalCycles = 0;
         ly = 0;
+        windowCounter = 0;
         stat = (stat & 0xFC) | 0x00;
         stat = (lyc == ly) ? (stat | 0x4) : (stat & ~0x4);
         return;
@@ -38,9 +47,7 @@ void PPU::update() {
     if (ly >= 144 && totalCycles >= 114) { // V-Blank
         stat = (stat & 0xFC) | 0x01;
         if (ly == 144) {
-            drawBackground();
-            drawWindow();
-            drawSprites();
+            framebuffer = writebuffer;
             memory.interrupt(0x1);
         }
         updateScanLine();
@@ -50,6 +57,12 @@ void PPU::update() {
         } else if (totalCycles < 63) { // Pixel Transfer
             stat = (stat & 0xFC) | 0x03;
         } else if (totalCycles < 114) { // H-Blank
+            if (totalCycles == 63) {
+                std::fill_n(line.begin(), 160, 0);
+                drawBackground();
+                drawWindow();
+                drawSprites();
+            }
             stat = (stat & 0xFC) | 0x00;
         } else if (totalCycles >= 114) { // End of Line
             stat = (stat & 0xFC) | 0x02;
@@ -74,6 +87,7 @@ void PPU::updateScanLine() {
     ++ly;
     if (ly > 153) {
         ly = 0;
+        windowCounter = 0;
     }
 
     totalCycles = 0;
@@ -101,132 +115,158 @@ std::vector<uint32_t> PPU::getPalette(uint8_t palette) {
     return col;
 }
 
+void PPU::drawBackground() {
+    if (!(lcdc & 0x1)) {
+        return;
+    }
+    uint16_t tileSelect = ((lcdc & 0x8) >> 3) ? 0x9C00 : 0x9800;
+    uint16_t tileData = ((lcdc & 0x10) >> 4) ? 0x8000 : 0x9000;
+    std::vector<uint32_t> col = getPalette(bgp);
+
+    uint8_t tileY = ((ly + scy) / 8) % 32;
+    for (int i = 0; i < 21; ++i) {
+        uint8_t tileX = (scx / 8 + i) % 32;
+
+        uint8_t tileNumber = memory.read(tileSelect + (tileY * 32) + tileX);
+        uint8_t pixelY = (ly + scy) % 8;
+
+        uint8_t byte1 = 0;
+        uint8_t byte2 = 0;
+        if (tileData == 0x8000) {
+            byte1 = memory.read(tileData + tileNumber * 16 + (pixelY * 2));
+            byte2 = memory.read(tileData + tileNumber * 16 + (pixelY * 2) + 1);
+        } else {
+            byte1 = memory.read(tileData + ((int8_t) (tileNumber) * 16) + (pixelY * 2));
+            byte2 = memory.read(tileData + ((int8_t) (tileNumber) * 16) + (pixelY * 2) + 1);
+        }
+
+        for (uint8_t pixelX = 0; pixelX < 8; ++pixelX) {
+            uint8_t bit1 = (byte1 >> (7 - pixelX)) & 0x1;
+            uint8_t bit2 = (byte2 >> (7 - pixelX)) & 0x1;
+            uint8_t color = (bit2 << 1) | bit1;
+            uint32_t pixel = col[color];
+
+            int X = i * 8 + pixelX - (scx % 8);
+            if (ly >= 0 && X >= 0 && ly < 144 && X < 160) {
+                writebuffer[ly * 160 + X] = pixel;
+                line[X] = color;
+            }
+        }
+    }
+}
+
 void PPU::drawWindow() {
-    if ((lcdc & 0x20) && wx <= 166 && wy <= 143) { // Window Enabled
-        uint16_t tileSelect = (((lcdc & 0x40) >> 6)) ? 0x9C00 : 0x9800;
-        uint16_t tileData = ((((lcdc & 0x10) >> 4)) ? 0x8000 : 0x9000);
-        std::vector<uint32_t> col = getPalette(bgp);
+    if (!((lcdc & 0x20) && (lcdc & 0x1) && wx <= 166 && wy <= 143 && wy <= ly)) {
+        return;
+    }
+    uint16_t tileSelect = (((lcdc & 0x40) >> 6)) ? 0x9C00 : 0x9800;
+    uint16_t tileData = ((((lcdc & 0x10) >> 4)) ? 0x8000 : 0x9000);
+    std::vector<uint32_t> col = getPalette(bgp);
 
-        for (int i = 0; i < 18; ++i) {
-            for (int j = 0; j < 20; ++j) {
-                uint8_t tileNumber = memory.read(tileSelect + (i*32) + j);
-                int screenY = i * 8;
-                int screenX = j * 8;
+    uint8_t tileY = windowCounter / 8;
+    windowCounter++;
+    for (int i = 0; i < 21; ++i) {
+        uint8_t tileNumber = memory.read(tileSelect + (tileY * 32) + i);
+        uint8_t pixelY = (ly - wy) % 8;
 
-                if (screenX < 160 && screenY < 144) {
-                    for (int ii = 0; ii < 8; ++ii) { // Y
-                        uint8_t byte1 = 0;
-                        uint8_t byte2 = 0;
-                        if (tileData == 0x8000) {
-                            byte1 = memory.read(tileData + (tileNumber*16) + (ii*2));
-                            byte2 = memory.read(tileData + (tileNumber*16) + (ii*2)+1);
-                        } else {
-                            byte1 = memory.read(tileData + ((int8_t) (tileNumber)*16) + (ii*2));
-                            byte2 = memory.read(tileData + ((int8_t) (tileNumber)*16) + (ii*2)+1);
-                        }
+        uint8_t byte1 = 0;
+        uint8_t byte2 = 0;
+        if (tileData == 0x8000) {
+            byte1 = memory.read(tileData + (tileNumber*16) + (pixelY * 2));
+            byte2 = memory.read(tileData + (tileNumber*16) + (pixelY * 2) + 1);
+        } else {
+            byte1 = memory.read(tileData + ((int8_t) (tileNumber) * 16) + (pixelY * 2));
+            byte2 = memory.read(tileData + ((int8_t) (tileNumber) * 16) + (pixelY * 2) + 1);
+        }
 
-                        for (int jj = 0; jj < 8; ++jj) { // X
-                            uint8_t bit1 = (byte1 >> (7-jj)) & 0x1;
-                            uint8_t bit2 = (byte2 >> (7-jj)) & 0x1;
-                            uint8_t color = (bit2 << 1) | bit1;
-                            uint32_t pixel = col[color];
+        for (int pixelX = 0; pixelX < 8; ++pixelX) { // X
+            uint8_t bit1 = (byte1 >> (7 - pixelX)) & 0x1;
+            uint8_t bit2 = (byte2 >> (7 - pixelX)) & 0x1;
+            uint8_t color = (bit2 << 1) | bit1;
+            uint32_t pixel = col[color];
 
-                            int Y = screenY+ii+wy;
-                            int X = screenX+jj+wx-7;
-                            if (Y >= 0 && X >= 0 && Y < 144 && X < 160) {
-                                framebuffer[Y*160 + X] = pixel;
-                            }
-                        }
-                    }
-                }
+            int X = i * 8 + pixelX + wx - 7;
+            if (ly >= 0 && X >= 0 && ly < 144 && X < 160) {
+                writebuffer[ly * 160 + X] = pixel;
+                line[X] = color;
             }
         }
     }
 }
 
 void PPU::drawSprites() {
-    int SIZE = ((lcdc & 0x4) >> 2) ? 16 : 8;
+    if (!(lcdc & 0x2)) {
+        return;
+    }
+    int size = ((lcdc & 0x4) >> 2) ? 16 : 8;
     const uint16_t OAM = 0xFE00;
-    if (lcdc & 0x2 || true) {
-        for (uint8_t byte = 0; byte <= 0x9F; byte += 4) {
-            int Y = memory.read(OAM+byte)-16;
-            int X = memory.read(OAM+byte+1)-8;
-            uint8_t tileNumber = memory.read(OAM+byte+2);
-            if (SIZE == 16) {
-                tileNumber &= ~1;
-            }
-            uint8_t attributes = memory.read(OAM+byte+3);
-            uint8_t xFlip = attributes & 0x20;
-            uint8_t yFlip = attributes & 0x40;
-            std::vector<uint32_t> col = getPalette((attributes & 0x10) ? obp1 : obp0);
 
-            for (int i = 0; i < SIZE; ++i) {
-                uint8_t byte1 = memory.read(0x8000 + (tileNumber*16) + i*2);
-                uint8_t byte2 = memory.read(0x8000 + (tileNumber*16) + i*2+1);
-                if (yFlip) {
-                    byte1 = memory.read(0x8000 + (tileNumber*16) + (SIZE-1-i)*2);
-                    byte2 = memory.read(0x8000 + (tileNumber*16) + (SIZE-1-i)*2+1);
-                }
-                for (int j = 0; j < 8; ++j) {
-                    if ((Y+i) < 144 && (X+j) < 160 && (Y+i) >= 0 && (X+j) >= 0) {
-                        uint8_t bit1 = (byte1 >> (7-j)) & 0x1;
-                        uint8_t bit2 = (byte2 >> (7-j)) & 0x1;
-                        if (xFlip) {
-                            bit1 = (byte1 >> j) & 0x1;
-                            bit2 = (byte2 >> j) & 0x1;
-                        }
-                        uint8_t color = (bit2 << 1) | bit1;
-                        uint32_t pixel = col[color];
+    typedef std::tuple<int, int, int> SpriteTuple;
+    std::vector<SpriteTuple> sprites = std::vector<SpriteTuple>();
+    sprites.reserve(10);
+    for (int byte = 0; byte < 0x9F; byte += 4) {
+        int Y = memory.read(OAM+byte) - 16;
+        int X = memory.read(OAM+byte + 1) - 8;
 
-                        if (color != 0) {
-                            framebuffer[(Y+i)*160 + (X+j)] = pixel;
-                        }
-                    }
-                }
+        if (Y <= ly && Y > ly - size) {
+            sprites.push_back(std::make_tuple(byte, Y, X));
+            if (sprites.size() >= 10) {
+                break;
             }
         }
     }
-}
 
-void PPU::drawBackground() {
-    uint16_t tileSelect = ((lcdc & 0x8) >> 3) ? 0x9C00 : 0x9800;
-    uint16_t tileData = ((lcdc & 0x10) >> 4) ? 0x8000 : 0x9000;
+    std::sort(sprites.begin(), sprites.end(),
+        [](const SpriteTuple& a, const SpriteTuple& b) {
+            return (std::get<2>(a) >= std::get<2>(b));
+        }
+    );
 
-    uint8_t scrollY = scy / 8;
-    uint8_t scrollX = scx / 8;
-    std::vector<uint32_t> col = getPalette(bgp);
+    for (const auto &sprite : sprites) {
+        int byte = std::get<0>(sprite);
+        int Y = std::get<1>(sprite);
+        int X = std::get<2>(sprite);
 
-    for (int i = 0; i < 19; ++i) {
-        for (int j = 0; j < 21; ++j) {
-            uint8_t tileNumber = memory.read(tileSelect + (((i+scrollY) % 32)*32) + ((j+scrollX) % 32));
+        if (X == -8 || X >= 160) {
+            continue;
+        }
 
-            int screenY = i * 8;
-            int screenX = j * 8;
+        uint8_t tileNumber = memory.read(OAM+byte+2);
+        if (size == 16) {
+            tileNumber &= ~1;
+        }
 
-            if (screenX < 168 && screenY < 152) {
-                for (int ii = 0; ii < 8; ++ii) { // Y
-                    uint8_t byte1 = 0;
-                    uint8_t byte2 = 0;
-                    if (tileData == 0x8000) {
-                        byte1 = memory.read(tileData + (tileNumber*16) + (ii*2));
-                        byte2 = memory.read(tileData + (tileNumber*16) + (ii*2)+1);
-                    } else {
-                        byte1 = memory.read(tileData + ((int8_t) (tileNumber)*16) + (ii*2));
-                        byte2 = memory.read(tileData + ((int8_t) (tileNumber)*16) + (ii*2)+1);
-                    }
+        uint8_t attributes = memory.read(OAM+byte+3);
+        std::vector<uint32_t> col = getPalette((attributes & 0x10) ? obp1 : obp0);
+        bool xFlip = attributes & 0x20;
+        bool yFlip = attributes & 0x40;
+        bool priority = attributes & 0x80;
 
-                    for (int jj = 0; jj < 8; ++jj) { // X
-                        uint8_t bit1 = (byte1 >> (7-jj)) & 0x1;
-                        uint8_t bit2 = (byte2 >> (7-jj)) & 0x1;
-                        uint8_t color = (bit2 << 1) | bit1;
-                        uint32_t pixel = col[color];
+        int i = ly - Y;
+        uint8_t byte1 = memory.read(0x8000 + (tileNumber*16) + i * 2);
+        uint8_t byte2 = memory.read(0x8000 + (tileNumber*16) + i * 2 + 1);
+        if (yFlip) {
+            byte1 = memory.read(0x8000 + (tileNumber*16) + (size - 1 - i) * 2);
+            byte2 = memory.read(0x8000 + (tileNumber*16) + (size - 1 - i) * 2 + 1);
+        }
 
-                        int Y = screenY+ii-(scy % 8);
-                        int X = screenX+jj-(scx % 8);
-                        if (Y >= 0 && X >= 0 && Y < 144 && X < 160) {
-                            framebuffer[Y*160 + X] = pixel;
-                        }
-                    }
+        for (int j = 0; j < 8; ++j) {
+            int XX = X + j;
+            if (ly < 144 && XX < 160 && ly >= 0 && XX >= 0) {
+                if (priority && line[XX] > 0) {
+                    continue;
+                }
+                uint8_t bit1 = (byte1 >> (7 - j)) & 0x1;
+                uint8_t bit2 = (byte2 >> (7 - j)) & 0x1;
+                if (xFlip) {
+                    bit1 = (byte1 >> j) & 0x1;
+                    bit2 = (byte2 >> j) & 0x1;
+                }
+                uint8_t color = (bit2 << 1) | bit1;
+                uint32_t pixel = col[color];
+
+                if (color != 0) {
+                    writebuffer[ly * 160 + XX] = pixel;
                 }
             }
         }
