@@ -164,10 +164,10 @@ void PPU::drawWindow() {
     std::vector<uint32_t> col = getPalette(bgp);
 
     uint8_t tileY = windowCounter / 8;
+    uint8_t pixelY = windowCounter % 8;
     windowCounter++;
     for (int i = 0; i < 21; ++i) {
         uint8_t tileNumber = memory.read(tileSelect + (tileY * 32) + i);
-        uint8_t pixelY = (ly - wy) % 8;
 
         uint8_t byte1 = 0;
         uint8_t byte2 = 0;
