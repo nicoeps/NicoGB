@@ -30,6 +30,7 @@ class PPU {
         int windowCounter;
         std::vector<uint32_t> writebuffer;
         std::vector<uint8_t> line;
+        bool clear;
 
         void checkInterrupt(uint8_t mode);
         void updateScanLine();

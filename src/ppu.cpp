@@ -30,6 +30,7 @@ void PPU::init() {
     totalCycles = 0;
     interrupt = false;
     windowCounter = 0;
+    clear = true;
 }
 
 void PPU::update() {
@@ -39,8 +40,14 @@ void PPU::update() {
         windowCounter = 0;
         stat = (stat & 0xFC) | 0x00;
         stat = (lyc == ly) ? (stat | 0x4) : (stat & ~0x4);
+        if (clear) {
+            clear = false;
+            std::fill_n(writebuffer.begin(), 160*144, getPalette(0)[0]);
+            std::fill_n(framebuffer.begin(), 160*144, getPalette(0)[0]);
+        }
         return;
     }
+    clear = true;
 
     totalCycles++;
 
@@ -117,6 +124,7 @@ std::vector<uint32_t> PPU::getPalette(uint8_t palette) {
 
 void PPU::drawBackground() {
     if (!(lcdc & 0x1)) {
+        std::fill_n(writebuffer.begin() + ly * 160, 160, getPalette(bgp)[0]);
         return;
     }
     uint16_t tileSelect = ((lcdc & 0x8) >> 3) ? 0x9C00 : 0x9800;
