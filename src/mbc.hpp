@@ -7,20 +7,21 @@ class MBC {
     public:
         virtual uint8_t read(uint16_t address) = 0;
         virtual void write(uint16_t address, uint8_t n) = 0;
-        virtual ~MBC() {};
+        virtual ~MBC() {}
 };
 
 class MBC0 : public MBC {
     private:
         std::vector<uint8_t>& rom;
         std::vector<uint8_t>& ram;
+        int ramSize;
 
     public:
         uint8_t read(uint16_t address);
         void write(uint16_t address, uint8_t n);
 
-        MBC0(std::vector<uint8_t>& rom, std::vector<uint8_t>& ram)
-            : rom(rom), ram(ram) {}
+        MBC0(std::vector<uint8_t>& rom, std::vector<uint8_t>& ram, int ramSize)
+            : rom(rom), ram(ram), ramSize(ramSize) {}
 };
 
 class MBC1 : public MBC {

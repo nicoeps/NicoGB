@@ -27,6 +27,7 @@ void PPU::init() {
     std::fill_n(framebuffer.begin(), 160*144, 0);
     std::fill_n(writebuffer.begin(), 160*144, 0);
     std::fill_n(line.begin(), 160, 0);
+    mode = 4;
     totalCycles = 0;
     interrupt = false;
     windowCounter = 0;
@@ -51,36 +52,68 @@ void PPU::update() {
 
     totalCycles++;
 
-    if (ly >= 144 && totalCycles >= 114) { // V-Blank
-        stat = (stat & 0xFC) | 0x01;
-        if (ly == 144) {
-            framebuffer = writebuffer;
-            memory.interrupt(0x1);
-        }
-        updateScanLine();
-    } else {
-        if (totalCycles < 20) { // OAM Search
-            stat = (stat & 0xFC) | 0x02;
-        } else if (totalCycles < 63) { // Pixel Transfer
-            stat = (stat & 0xFC) | 0x03;
-        } else if (totalCycles < 114) { // H-Blank
-            if (totalCycles == 63) {
+    switch (mode) {
+        case 2: // OAM Search
+            if (totalCycles >= 20) {
+                totalCycles -= 20;
+                mode = 3;
+                stat = (stat & 0xFC) | 0x03;
+            }
+            break;
+
+        case 3: // Pixel transfer
+            if (totalCycles >= 43) {
+                totalCycles -= 43;
+                mode = 0;
+                stat = (stat & 0xFC) | 0x00;
                 std::fill_n(line.begin(), 160, 0);
                 drawBackground();
                 drawWindow();
                 drawSprites();
             }
-            stat = (stat & 0xFC) | 0x00;
-        } else if (totalCycles >= 114) { // End of Line
-            stat = (stat & 0xFC) | 0x02;
-            updateScanLine();
-        }
+            break;
+
+        case 0: // H-Blank
+            if (totalCycles >= 51) {
+                totalCycles -= 51;
+                ++ly;
+                if (ly < 144) {
+                    mode = 2;
+                    stat = (stat & 0xFC) | 0x02;
+                } else {
+                    mode = 1;
+                    stat = (stat & 0xFC) | 0x01;
+                    framebuffer.swap(writebuffer);
+                    memory.interrupt(0x1);
+                }
+            }
+            break;
+
+        case 1: // V-Blank
+            if (totalCycles >= 114) {
+                totalCycles -= 114;
+                ++ly;
+                if (ly > 153) {
+                    ly = 0;
+                    windowCounter = 0;
+                    mode = 2;
+                    stat = (stat & 0xFC) | 0x02;
+                }
+            }
+            break;
+
+        default: // Glitched OAM
+            if (totalCycles >= 19) {
+                totalCycles -= 19;
+                mode = 3;
+                stat = (stat & 0xFC) | 0x03;
+            }
+            break;
     }
 
     stat = (lyc == ly) ? (stat | 0x4) : (stat & ~0x4);
-    uint8_t mode = stat & 0x3;
     if (((stat & 0x4) && (stat & 0x40))
-    || (((stat >> (mode+3)) & 1) && mode != 0x3)) {
+    || (((stat >> (mode + 3)) & 1) && mode != 0x3)) {
         if (interrupt == false) {
             memory.interrupt(0x2);
             interrupt = true;
@@ -88,16 +121,6 @@ void PPU::update() {
     } else {
         interrupt = false;
     }
-}
-
-void PPU::updateScanLine() {
-    ++ly;
-    if (ly > 153) {
-        ly = 0;
-        windowCounter = 0;
-    }
-
-    totalCycles = 0;
 }
 
 std::vector<uint32_t> PPU::getPalette(uint8_t palette) {
@@ -124,7 +147,9 @@ std::vector<uint32_t> PPU::getPalette(uint8_t palette) {
 
 void PPU::drawBackground() {
     if (!(lcdc & 0x1)) {
-        std::fill_n(writebuffer.begin() + ly * 160, 160, getPalette(bgp)[0]);
+        if (ly < 144) {
+            std::fill_n(writebuffer.begin() + ly * 160, 160, getPalette(bgp)[0]);
+        }
         return;
     }
     uint16_t tileSelect = ((lcdc & 0x8) >> 3) ? 0x9C00 : 0x9800;
@@ -155,7 +180,7 @@ void PPU::drawBackground() {
             uint32_t pixel = col[color];
 
             int X = i * 8 + pixelX - (scx % 8);
-            if (ly >= 0 && X >= 0 && ly < 144 && X < 160) {
+            if (X >= 0 && ly < 144 && X < 160) {
                 writebuffer[ly * 160 + X] = pixel;
                 line[X] = color;
             }
@@ -194,7 +219,7 @@ void PPU::drawWindow() {
             uint32_t pixel = col[color];
 
             int X = i * 8 + pixelX + wx - 7;
-            if (ly >= 0 && X >= 0 && ly < 144 && X < 160) {
+            if (X >= 0 && ly < 144 && X < 160) {
                 writebuffer[ly * 160 + X] = pixel;
                 line[X] = color;
             }
@@ -260,7 +285,7 @@ void PPU::drawSprites() {
 
         for (int j = 0; j < 8; ++j) {
             int XX = X + j;
-            if (ly < 144 && XX < 160 && ly >= 0 && XX >= 0) {
+            if (ly < 144 && XX < 160 && XX >= 0) {
                 if (priority && line[XX] > 0) {
                     continue;
                 }

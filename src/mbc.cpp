@@ -5,7 +5,7 @@ uint8_t MBC0::read(uint16_t address) {
     if (address <= 0x7FFF) {
         return rom[address];
     } else if (address >= 0xA000 && address <= 0xBFFF) {
-        return ram[address - 0xA000];
+        return ram[(address - 0xA000) % ramSize];
     } else {
         return 0xFF;
     }
@@ -13,7 +13,7 @@ uint8_t MBC0::read(uint16_t address) {
 
 void MBC0::write(uint16_t address, uint8_t n) {
     if (address >= 0xA000 && address <= 0xBFFF) {
-        ram[address - 0xA000] = n;
+        ram[(address - 0xA000) % ramSize] = n;
     }
 }
 

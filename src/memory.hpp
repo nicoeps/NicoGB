@@ -41,7 +41,6 @@ class Memory {
         Memory(Cartridge& cartridge, Joypad& joypad, Timer& timer);
 
     private:
-        std::vector<uint8_t> memory;
         std::vector<uint8_t> vram;
         std::vector<uint8_t> wram;
         std::vector<uint8_t> oam;

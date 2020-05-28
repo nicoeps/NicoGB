@@ -27,6 +27,7 @@ class PPU {
         uint8_t& wy;
         uint8_t& wx;
 
+        uint8_t mode;
         int windowCounter;
         std::vector<uint32_t> writebuffer;
         std::vector<uint8_t> line;

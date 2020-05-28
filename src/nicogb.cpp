@@ -44,14 +44,14 @@ void NicoGB::tick() {
         cpu.totalCycles = 0;
     }
 
-    if (cartridge.loaded && cpu.totalCycles < 69905) {
+    if (cartridge.loaded && cpu.totalCycles < 70224) {
         cpu.cycle();
     }
 
     if (millis() - last >= 1000/60) {
         last = millis();
         if (cartridge.loaded && !speed) {
-            cpu.totalCycles -= 69905;
+            cpu.totalCycles -= 70224;
         }
     }
 }

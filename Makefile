@@ -1,11 +1,11 @@
 # Compiler
-CC = clang++
+CXX = clang++
 
 # Files
 SRCS = $(wildcard src/*.cpp)
 
 # Compiler flags
-CFLAGS = -std=c++17
+CXXFLAGS = -std=c++17
 
 # Debug flags
 DFLAGS = -Wall -Werror -Wextra -Og
@@ -14,16 +14,16 @@ DFLAGS = -Wall -Werror -Wextra -Og
 BFLAGS = -O3
 
 # Libraries
-LIBS = -lSDL2
+LDLIBS = -lSDL2
 
 # Executable name
 NAME = NicoGB
 
 # Build
 build: $(SRCS)
-	$(CC) $(SRCS) $(CFLAGS) $(BFLAGS) $(LIBS) -o $(NAME) 
+	$(CXX) $(SRCS) $(CXXFLAGS) $(BFLAGS) $(LDLIBS) -o $(NAME)
 
 # Test
 test: $(SRCS)
-	$(CC) $(SRCS) $(CFLAGS) $(DFLAGS) -DTEST $(LIBS) -o $(NAME) 
+	$(CXX) $(SRCS) $(CXXFLAGS) $(DFLAGS) -DTEST $(LDLIBS) -o $(NAME)
 	./${NAME}

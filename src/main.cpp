@@ -1,4 +1,5 @@
 #include <chrono>
+#include <filesystem>
 
 #include "SDL2/SDL.h"
 
@@ -154,13 +155,22 @@ int main() {
 #else
 
     std::vector <testcase> tests {
-        testcase("Passed", "Failed", "tests/blargg/cpu_instrs/cpu_instrs.gb"),
-        testcase("Passed", "Failed", "tests/blargg/instr_timing/instr_timing.gb"),
-        testcase("Passed", "Failed", "tests/blargg/mem_timing/mem_timing.gb"),
+        testcase("Passed", "Failed", "tests/blargg/"),
+        testcase({ 3, 5, 8, 13, 21, 34 }, { 66 }, "tests/mooneye/"),
     };
 
-    for (auto test: tests) {
-        printf("%s\n", assert(nicogb, test).c_str());
+    for (auto& test: tests) {
+        std::string path = std::get<2>(test);
+        if (path.find(".gb") != std::string::npos) {
+            printf("%s\n", assert(nicogb, test).c_str());
+            continue;
+        }
+        for(auto& p: std::filesystem::recursive_directory_iterator(path)) {
+            if(p.path().extension() == ".gb") {
+                printf("%s\n", assert(nicogb,
+                    testcase(std::get<0>(test), std::get<1>(test), p.path())).c_str());
+            }
+        }
     }
 
 #endif

@@ -111,11 +111,11 @@ uint8_t CPU::CARRY_Sc(uint8_t a, uint8_t b) {
 
 // Set flag borrow
 uint8_t CPU::HALF_Sb(uint8_t a, uint8_t b) {
-    return (((a & 0x0F) - (b & 0x0F)) < 0) ? HALF : 0;
+    return ((a & 0x0F) < (b & 0x0F)) ? HALF : 0;
 }
 
 uint8_t CPU::CARRY_Sb(uint8_t a, uint8_t b) {
-    return (a-b < 0) ? CARRY : 0;
+    return (a < b) ? CARRY : 0;
 }
 
 // Set flag borrow carry
@@ -210,7 +210,7 @@ void CPU::XOR(uint8_t n) {
 
 // CP
 void CPU::CP(uint8_t n) {
-    F = ZERO_S(A-n) | NEG | (((A & 0x0F) < (n & 0x0F)) ? HALF : 0) | ((A < n) ? CARRY : 0);
+    F = ZERO_S(A-n) | NEG | HALF_Sb(A, n) | CARRY_Sb(A, n);
 }
 
 // INC
@@ -382,6 +382,17 @@ void CPU::cycle() {
     }
 
     interrupt = memory.read(IF) & memory.read(IE) & 0x1F;
+
+    if (halted) {
+        if (interrupt != 0) {
+            halted = 0;
+            tick();
+        } else {
+            tick();
+            return;
+        }
+    }
+
     if (IME && interrupt != 0) {
         IME = 0;
         tick();
@@ -403,22 +414,14 @@ void CPU::cycle() {
             PC = 0x60;
             memory.write(IF, memory.read(IF) & ~JOYPAD);
         }
-    }
-
-    if (halted) {
-        if (interrupt != 0) {
-            halted = 0;
-        } else {
-            tick();
-            return;
-        }
+        tick();
     }
 
     opcode = readByte();
 
     if (haltBug) {
         haltBug = 0;
-        PC--;
+        --PC;
     }
 
     switch (opcode) {
@@ -1249,7 +1252,7 @@ void CPU::cycle() {
             break;
 
         // STOP
-        case 0x10: break;
+        case 0x10: ++PC; break;
 
         default: break;
     }

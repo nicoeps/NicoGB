@@ -20,7 +20,7 @@ void Cartridge::load(std::string path) {
         romSize = cartridgeFile.tellg();
         cartridgeFile.seekg(0, cartridgeFile.beg);
         cartridgeFile.clear();
-        if (romSize < 32768 || romSize % 32768 != 0) {
+        if (romSize % 32768 != 0) {
             loaded = false;
             cartridgeFile.close();
             return;
@@ -52,7 +52,7 @@ void Cartridge::load(std::string path) {
             case 0x00:
             case 0x08:
             case 0x09:
-                mbc.reset(new MBC0(cartridgeROM, cartridgeRAM));
+                mbc.reset(new MBC0(cartridgeROM, cartridgeRAM, ramSize));
                 break;
 
             // MBC1
@@ -101,7 +101,7 @@ void Cartridge::load(std::string path) {
             //     break;
 
             default:
-                mbc.reset(new MBC0(cartridgeROM, cartridgeRAM));
+                mbc.reset(new MBC0(cartridgeROM, cartridgeRAM, ramSize));
                 break;
         }
     } else {
