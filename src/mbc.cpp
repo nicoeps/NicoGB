@@ -59,6 +59,38 @@ void MBC1::write(uint16_t address, uint8_t n) {
     }
 }
 
+// MBC2
+uint8_t MBC2::read(uint16_t address) {
+    if (address <= 0x3FFF) {
+        return rom[address];
+    } else if (address <= 0x7FFF) {
+        return rom[((romb << 14) | (address & 0x3FFF)) % romSize];
+    } else if (address >= 0xA000 && address <= 0xBFFF) {
+        if (ramg) {
+            return ram[address % ramSize];
+        } else {
+            return 0xFF;
+        }
+    } else {
+        return 0xFF;
+    }
+}
+
+void MBC2::write(uint16_t address, uint8_t n) {
+    if (address <= 0x3FFF) {
+        n &= 0x0F;
+        if ((address & 0x100) == 0) {
+            ramg = n == 0x0A;
+        } else {
+            romb = n == 0 ? 0x1 : n;
+        }
+    } else if (address >= 0xA000 && address <= 0xBFFF) {
+        if (ramg) {
+            ram[address % ramSize] = n & 0x0F;
+        }
+    }
+}
+
 
 // MBC3
 uint8_t MBC3::read(uint16_t address) {

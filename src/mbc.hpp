@@ -51,6 +51,7 @@ class MBC2 : public MBC {
         bool ramg = 0;
         int romSize;
         int ramSize;
+        uint8_t romb = 1;
 
     public:
         uint8_t read(uint16_t address);

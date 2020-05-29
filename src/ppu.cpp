@@ -61,7 +61,7 @@ void PPU::update() {
             }
             break;
 
-        case 3: // Pixel transfer
+        case 3: // Pixel Transfer
             if (totalCycles >= 43) {
                 totalCycles -= 43;
                 mode = 0;
@@ -102,7 +102,7 @@ void PPU::update() {
             }
             break;
 
-        default: // Glitched OAM
+        default: // Glitched OAM Search
             if (totalCycles >= 19) {
                 totalCycles -= 19;
                 mode = 3;

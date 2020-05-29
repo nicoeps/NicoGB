@@ -15,7 +15,10 @@ Cartridge::Cartridge() {
 void Cartridge::load(std::string path) {
     std::ifstream cartridgeFile(path, std::ifstream::binary);
 
-    if (cartridgeFile.is_open()) {
+    if (!cartridgeFile.is_open()) {
+        loaded = false;
+        return;
+    } else {
         cartridgeFile.seekg(0, cartridgeFile.end);
         romSize = cartridgeFile.tellg();
         cartridgeFile.seekg(0, cartridgeFile.beg);
@@ -41,6 +44,10 @@ void Cartridge::load(std::string path) {
             default: ramSize = 1;         break;
         }
 
+        if (cartridgeType == 0x05 || cartridgeType == 0x06) { // MBC2
+            ramSize = 512;
+        }
+
         cartridgeRAM.resize(ramSize);
         std::fill_n(cartridgeRAM.begin(), ramSize, 0);
 
@@ -63,9 +70,10 @@ void Cartridge::load(std::string path) {
                 break;
 
             // MBC2
-            // case 0x05:
-            // case 0x06:
-                // break;
+            case 0x05:
+            case 0x06:
+                mbc.reset(new MBC2(cartridgeROM, cartridgeRAM, romSize, ramSize));
+                break;
 
             // MMM01
             // case 0x0B:
@@ -104,9 +112,6 @@ void Cartridge::load(std::string path) {
                 mbc.reset(new MBC0(cartridgeROM, cartridgeRAM, ramSize));
                 break;
         }
-    } else {
-        loaded = false;
-        return;
     }
 }
 

@@ -51,14 +51,10 @@ void Memory::init() {
     lcd.wx = 0;
     dmaAddress = 0;
     dmaCycle = 0xFF;
-    write(0xFF01, 0x00);  // SB
-    write(0xFF02, 0x7E);  // SC
-    write(0xFF04, 0x00);  // DIV
-    write(0xFF05, 0x00);  // TIMA
-    write(0xFF06, 0x00);  // TMA
-    write(0xFF07, 0x00);  // TAC
-    write(0xFF0F, 0x00);  // IF
-    write(0xFFFF, 0x00);  // IE
+    write(0xFF01, 0x00); // SB
+    write(0xFF02, 0x7E); // SC
+    write(0xFF0F, 0x00); // IF
+    write(0xFFFF, 0x00); // IE
     bootEnabled = true;
 }
 
