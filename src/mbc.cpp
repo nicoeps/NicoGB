@@ -86,7 +86,7 @@ void MBC2::write(uint16_t address, uint8_t n) {
         }
     } else if (address >= 0xA000 && address <= 0xBFFF) {
         if (ramg) {
-            ram[address % ramSize] = n & 0x0F;
+            ram[address % ramSize] = n | 0xF0;
         }
     }
 }
