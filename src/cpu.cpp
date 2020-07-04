@@ -386,14 +386,13 @@ void CPU::cycle() {
     if (halted) {
         if (interrupt != 0) {
             halted = 0;
-            tick();
         } else {
             tick();
             return;
         }
     }
 
-    if (IME && interrupt != 0) {
+    if (IME && (interrupt != 0)) {
         IME = 0;
         tick();
         tick();
@@ -414,7 +413,6 @@ void CPU::cycle() {
             PC = 0x60;
             memory.write(IF, memory.read(IF) & ~JOYPAD);
         }
-        tick();
     }
 
     opcode = readByte();
@@ -1240,7 +1238,7 @@ void CPU::cycle() {
         case 0xF3: IRQ = 0; IME = 0; break;
 
         // EI
-        case 0xFB: IRQ = 2; break;
+        case 0xFB: if (IRQ != 1) IRQ = 2; break;
 
         // HALT
         case 0x76:

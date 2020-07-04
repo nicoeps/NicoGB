@@ -39,7 +39,7 @@ void Memory::init() {
     std::fill_n(io.begin(), 0x100, 0xFF);
     std::fill_n(hram.begin(), 0x7F, 0);
     lcd.lcdc = 0;
-    lcd.stat = 0;
+    lcd.stat = 0x80;
     lcd.scy = 0;
     lcd.scx = 0;
     lcd.ly = 0;
@@ -51,25 +51,29 @@ void Memory::init() {
     lcd.wx = 0;
     dmaAddress = 0;
     dmaCycle = 0xFF;
-    write(0xFF01, 0x00); // SB
-    write(0xFF02, 0x7E); // SC
-    write(0xFF0F, 0x00); // IF
-    write(0xFFFF, 0x00); // IE
+    writeInternal(0xFF01, 0x00); // SB
+    writeInternal(0xFF02, 0x7E); // SC
+    writeInternal(0xFF0F, 0x00); // IF
+    writeInternal(0xFFFF, 0x00); // IE
     bootEnabled = true;
 }
 
 void Memory::interrupt(uint8_t IRQ) {
-    write(0xFF0F, read(0xFF0F) | IRQ);
+    writeInternal(0xFF0F, readInternal(0xFF0F) | IRQ);
 }
 
 void Memory::transfer() {
-    if (dmaCycle <= 0xA0) {
-        oam[dmaCycle] = read(dmaAddress + dmaCycle);
+    if (dmaCycle == 0xC0) {
+        dmaCycle = 0xB0;
+    } else if (dmaCycle == 0xB0) {
+        dmaCycle = 0;
+    } else if (dmaCycle < 0xA0) {
+        oam[dmaCycle] = readInternal(dmaAddress + dmaCycle);
         dmaCycle++;
     }
 }
 
-uint8_t Memory::read(uint16_t address) {
+uint8_t Memory::readInternal(uint16_t address) {
     if (address < 0x100 && bootEnabled) {
         return boot[address];
     } else if (address <= 0x7FFF && cartridge.loaded == true) {
@@ -87,6 +91,7 @@ uint8_t Memory::read(uint16_t address) {
     } else if ((address >= 0xFF00 && address <= 0xFF7F) || address == 0xFFFF) {
         switch (address) {
             case 0xFF00: return joypad.read();
+            case 0xFF02: return io[0x02] | 0x7E;
             case 0xFF04: return timer.divider;
             case 0xFF05: return timer.tima;
             case 0xFF06: return timer.tma;
@@ -114,7 +119,7 @@ uint8_t Memory::read(uint16_t address) {
     }
 }
 
-void Memory::write(uint16_t address, uint8_t n) {
+void Memory::writeInternal(uint16_t address, uint8_t n) {
     if (address <= 0x7FFF && cartridge.loaded == true) {
         cartridge.write(address, n);
     } else if (address >= 0x8000 && address <= 0x9FFF) {
@@ -130,6 +135,7 @@ void Memory::write(uint16_t address, uint8_t n) {
     } else if ((address >= 0xFF00 && address <= 0xFF7F) || address == 0xFFFF) {
         switch (address) {
             case 0xFF00: joypad.write(n); break;
+            case 0xFF02: io[0x02] = n | 0x7E;
             case 0xFF04: timer.counter = 0; break;
             case 0xFF05: timer.tima = n; break;
             case 0xFF06: timer.tma = n; break;
@@ -141,10 +147,8 @@ void Memory::write(uint16_t address, uint8_t n) {
             case 0xFF45: lcd.lyc = n; break;
             case 0xFF46: // DMA Transfer
                 io[0x46] = n;
-                if (dmaCycle > 0xA0) {
-                    dmaAddress = n << 8;
-                    dmaCycle = 0x0;
-                }
+                dmaAddress = n < 0xE0 ? n << 8 : (n - 0x20) << 8;
+                dmaCycle = 0xC0;
                 break;
             case 0xFF47: lcd.bgp = n; break;
             case 0xFF48: lcd.obp0 = n; break;
@@ -154,24 +158,24 @@ void Memory::write(uint16_t address, uint8_t n) {
             case 0xFF50:
                 if (n == 0x01 && bootEnabled) {
                     bootEnabled = false;
-                    write(0xFF10, 0x80); // NR10
-                    write(0xFF11, 0xBF); // NR11
-                    write(0xFF12, 0xF3); // NR12
-                    write(0xFF14, 0xBF); // NR14
-                    write(0xFF16, 0x3F); // NR21
-                    write(0xFF17, 0x00); // NR22
-                    write(0xFF19, 0xBF); // NR24
-                    write(0xFF1A, 0x7F); // NR30
-                    write(0xFF1B, 0xFF); // NR31
-                    write(0xFF1C, 0x9F); // NR32
-                    write(0xFF1E, 0xBF); // NR33
-                    write(0xFF20, 0xFF); // NR41
-                    write(0xFF21, 0x00); // NR42
-                    write(0xFF22, 0x00); // NR43
-                    write(0xFF23, 0xBF); // NR30
-                    write(0xFF24, 0x77); // NR50
-                    write(0xFF25, 0xF3); // NR51
-                    write(0xFF26, 0xF1); // NR52
+                    io[0x10] = 0x80; // NR10
+                    io[0x11] = 0xBF; // NR11
+                    io[0x12] = 0xF3; // NR12
+                    io[0x14] = 0xBF; // NR14
+                    io[0x16] = 0x3F; // NR21
+                    io[0x17] = 0x00; // NR22
+                    io[0x19] = 0xBF; // NR24
+                    io[0x1A] = 0x7F; // NR30
+                    io[0x1B] = 0xFF; // NR31
+                    io[0x1C] = 0x9F; // NR32
+                    io[0x1E] = 0xBF; // NR33
+                    io[0x20] = 0xFF; // NR41
+                    io[0x21] = 0x00; // NR42
+                    io[0x22] = 0x00; // NR43
+                    io[0x23] = 0xBF; // NR30
+                    io[0x24] = 0x77; // NR50
+                    io[0x25] = 0xF3; // NR51
+                    io[0x26] = 0xF1; // NR52
                 }
                 break;
             case 0xFFFF: io[0xFF] = n; break; // IE
@@ -181,4 +185,40 @@ void Memory::write(uint16_t address, uint8_t n) {
     } else if (address >= 0xFF80 && address <= 0xFFFE) {
         hram[address - 0xFF80] = n;
     }
+}
+
+uint8_t Memory::read(uint16_t address) {
+    if (dmaCycle < 0xA0) {
+        if (!(address >= 0xFF00 && address <= 0xFFFF)) {
+            return 0xFF;
+        }
+    } else if (address >= 0x8000 && address <= 0x9FFF) { // VRAM
+        if ((lcd.stat & 0x3) == 0x3) {
+            return 0xFF;
+        }
+    } else if (address >= 0xFE00 && address <= 0xFE9F) { // OAM
+        if ((lcd.stat & 0x3) == 0x2 || (lcd.stat & 0x3) == 0x3) {
+            return 0xFF;
+        }
+    }
+    return readInternal(address);
+}
+
+void Memory::write(uint16_t address, uint8_t n) {
+    if (dmaCycle < 0xA0) {
+        if (address == 0xFF46) {
+            ;
+        } else if (!(address >= 0xFF00 && address <= 0xFFFF)) {
+            return;
+        }
+    } else if (address >= 0x8000 && address <= 0x9FFF) { // VRAM
+        if ((lcd.stat & 0x3) == 0x3) {
+            return;
+        }
+    } else if (address >= 0xFE00 && address <= 0xFE9F) { // OAM
+        if ((lcd.stat & 0x3) == 0x2 || (lcd.stat & 0x3) == 0x3) {
+            return;
+        }
+    }
+    writeInternal(address, n);
 }
