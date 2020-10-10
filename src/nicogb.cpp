@@ -65,18 +65,18 @@ void NicoGB::keyUp(Key key) {
 }
 
 uint8_t NicoGB::serialDataRead() {
-    return memory.read(0xFF01);
+    return memory.readInternal(0xFF01);
 }
 
 void NicoGB::serialDataWrite(uint8_t value) {
-    memory.write(0xFF01, value);
+    memory.writeInternal(0xFF01, value);
 }
 
 bool NicoGB::serialTransferRead() {
-    return memory.read(0xFF02) & 0x80;
+    return memory.readInternal(0xFF02) & 0x80;
 }
 
 void NicoGB::serialTransferWrite(bool value) {
     uint8_t serialControl = memory.read(0xFF02) & 0x1;
-    memory.write(0xFF02, (value << 7) | serialControl);
+    memory.writeInternal(0xFF02, (value << 7) | serialControl);
 }

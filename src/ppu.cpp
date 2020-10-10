@@ -40,30 +40,31 @@ void PPU::update() {
         ly = 0;
         windowCounter = 0;
         stat = (stat & 0xFC) | 0x00;
-        stat = (lyc == ly) ? (stat | 0x4) : (stat & ~0x4);
+        mode = 4;
+        // stat = (lyc == ly) ? (stat | 0x4) : (stat & ~0x4);
         if (clear) {
             clear = false;
-            std::fill_n(writebuffer.begin(), 160*144, getPalette(0)[0]);
+            // std::fill_n(writebuffer.begin(), 160*144, getPalette(0)[0]);
             std::fill_n(framebuffer.begin(), 160*144, getPalette(0)[0]);
         }
         return;
     }
     clear = true;
 
-    totalCycles++;
+    totalCycles += 4;
 
     switch (mode) {
         case 2: // OAM Search
-            if (totalCycles >= 20) {
-                totalCycles -= 20;
+            if (totalCycles >= 80) {
+                totalCycles -= 80;
                 mode = 3;
                 stat = (stat & 0xFC) | 0x03;
             }
             break;
 
         case 3: // Pixel Transfer
-            if (totalCycles >= 43) {
-                totalCycles -= 43;
+            if (totalCycles >= 172) {
+                totalCycles -= 172;
                 mode = 0;
                 stat = (stat & 0xFC) | 0x00;
                 std::fill_n(line.begin(), 160, 0);
@@ -74,8 +75,8 @@ void PPU::update() {
             break;
 
         case 0: // H-Blank
-            if (totalCycles >= 51) {
-                totalCycles -= 51;
+            if (totalCycles >= 204) {
+                totalCycles -= 204;
                 ++ly;
                 if (ly < 144) {
                     mode = 2;
@@ -90,8 +91,8 @@ void PPU::update() {
             break;
 
         case 1: // V-Blank
-            if (totalCycles >= 114) {
-                totalCycles -= 114;
+            if (totalCycles >= 456) {
+                totalCycles -= 456;
                 ++ly;
                 if (ly > 153) {
                     ly = 0;
@@ -103,8 +104,8 @@ void PPU::update() {
             break;
 
         default: // Glitched OAM Search
-            if (totalCycles >= 19) {
-                totalCycles -= 19;
+            if (totalCycles >= 76) {
+                totalCycles -= 76;
                 mode = 3;
                 stat = (stat & 0xFC) | 0x03;
             }
@@ -113,7 +114,7 @@ void PPU::update() {
 
     stat = (lyc == ly) ? (stat | 0x4) : (stat & ~0x4);
     if (((stat & 0x4) && (stat & 0x40))
-    || (((stat >> (mode + 3)) & 1) && mode != 0x3)) {
+    || (((stat >> ((stat & 0x3) + 3)) & 1) && (stat & 0x3) != 0x3)) {
         if (interrupt == false) {
             memory.interrupt(0x2);
             interrupt = true;
@@ -160,17 +161,17 @@ void PPU::drawBackground() {
     for (int i = 0; i < 21; ++i) {
         uint8_t tileX = (scx / 8 + i) % 32;
 
-        uint8_t tileNumber = memory.read(tileSelect + (tileY * 32) + tileX);
+        uint8_t tileNumber = memory.readInternal(tileSelect + (tileY * 32) + tileX);
         uint8_t pixelY = (ly + scy) % 8;
 
         uint8_t byte1 = 0;
         uint8_t byte2 = 0;
         if (tileData == 0x8000) {
-            byte1 = memory.read(tileData + tileNumber * 16 + (pixelY * 2));
-            byte2 = memory.read(tileData + tileNumber * 16 + (pixelY * 2) + 1);
+            byte1 = memory.readInternal(tileData + tileNumber * 16 + (pixelY * 2));
+            byte2 = memory.readInternal(tileData + tileNumber * 16 + (pixelY * 2) + 1);
         } else {
-            byte1 = memory.read(tileData + ((int8_t) (tileNumber) * 16) + (pixelY * 2));
-            byte2 = memory.read(tileData + ((int8_t) (tileNumber) * 16) + (pixelY * 2) + 1);
+            byte1 = memory.readInternal(tileData + ((int8_t) (tileNumber) * 16) + (pixelY * 2));
+            byte2 = memory.readInternal(tileData + ((int8_t) (tileNumber) * 16) + (pixelY * 2) + 1);
         }
 
         for (uint8_t pixelX = 0; pixelX < 8; ++pixelX) {
@@ -200,16 +201,16 @@ void PPU::drawWindow() {
     uint8_t pixelY = windowCounter % 8;
     windowCounter++;
     for (int i = 0; i < 21; ++i) {
-        uint8_t tileNumber = memory.read(tileSelect + (tileY * 32) + i);
+        uint8_t tileNumber = memory.readInternal(tileSelect + (tileY * 32) + i);
 
         uint8_t byte1 = 0;
         uint8_t byte2 = 0;
         if (tileData == 0x8000) {
-            byte1 = memory.read(tileData + (tileNumber*16) + (pixelY * 2));
-            byte2 = memory.read(tileData + (tileNumber*16) + (pixelY * 2) + 1);
+            byte1 = memory.readInternal(tileData + (tileNumber*16) + (pixelY * 2));
+            byte2 = memory.readInternal(tileData + (tileNumber*16) + (pixelY * 2) + 1);
         } else {
-            byte1 = memory.read(tileData + ((int8_t) (tileNumber) * 16) + (pixelY * 2));
-            byte2 = memory.read(tileData + ((int8_t) (tileNumber) * 16) + (pixelY * 2) + 1);
+            byte1 = memory.readInternal(tileData + ((int8_t) (tileNumber) * 16) + (pixelY * 2));
+            byte2 = memory.readInternal(tileData + ((int8_t) (tileNumber) * 16) + (pixelY * 2) + 1);
         }
 
         for (int pixelX = 0; pixelX < 8; ++pixelX) { // X
@@ -238,8 +239,8 @@ void PPU::drawSprites() {
     std::vector<SpriteTuple> sprites = std::vector<SpriteTuple>();
     sprites.reserve(10);
     for (int byte = 0; byte < 0x9F; byte += 4) {
-        int Y = memory.read(OAM+byte) - 16;
-        int X = memory.read(OAM+byte + 1) - 8;
+        int Y = memory.readInternal(OAM+byte) - 16;
+        int X = memory.readInternal(OAM+byte + 1) - 8;
 
         if (Y <= ly && Y > ly - size) {
             sprites.push_back(std::make_tuple(byte, Y, X));
@@ -264,23 +265,23 @@ void PPU::drawSprites() {
             continue;
         }
 
-        uint8_t tileNumber = memory.read(OAM+byte+2);
+        uint8_t tileNumber = memory.readInternal(OAM+byte+2);
         if (size == 16) {
             tileNumber &= ~1;
         }
 
-        uint8_t attributes = memory.read(OAM+byte+3);
+        uint8_t attributes = memory.readInternal(OAM+byte+3);
         std::vector<uint32_t> col = getPalette((attributes & 0x10) ? obp1 : obp0);
         bool xFlip = attributes & 0x20;
         bool yFlip = attributes & 0x40;
         bool priority = attributes & 0x80;
 
         int i = ly - Y;
-        uint8_t byte1 = memory.read(0x8000 + (tileNumber*16) + i * 2);
-        uint8_t byte2 = memory.read(0x8000 + (tileNumber*16) + i * 2 + 1);
+        uint8_t byte1 = memory.readInternal(0x8000 + (tileNumber*16) + i * 2);
+        uint8_t byte2 = memory.readInternal(0x8000 + (tileNumber*16) + i * 2 + 1);
         if (yFlip) {
-            byte1 = memory.read(0x8000 + (tileNumber*16) + (size - 1 - i) * 2);
-            byte2 = memory.read(0x8000 + (tileNumber*16) + (size - 1 - i) * 2 + 1);
+            byte1 = memory.readInternal(0x8000 + (tileNumber*16) + (size - 1 - i) * 2);
+            byte2 = memory.readInternal(0x8000 + (tileNumber*16) + (size - 1 - i) * 2 + 1);
         }
 
         for (int j = 0; j < 8; ++j) {
