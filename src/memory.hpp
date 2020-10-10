@@ -32,6 +32,8 @@ class Memory {
         void load(std::string path);
         uint8_t read(uint16_t address);
         void write(uint16_t address, uint8_t n);
+        uint8_t readInternal(uint16_t address);
+        void writeInternal(uint16_t address, uint8_t n);
         void interrupt(uint8_t IRQ);
 
         uint16_t dmaAddress;

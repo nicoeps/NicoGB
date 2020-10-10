@@ -67,7 +67,7 @@ uint8_t MBC2::read(uint16_t address) {
         return rom[((romb << 14) | (address & 0x3FFF)) % romSize];
     } else if (address >= 0xA000 && address <= 0xBFFF) {
         if (ramg) {
-            return ram[address % ramSize];
+            return ram[address % ramSize] | 0xF0;
         } else {
             return 0xFF;
         }
