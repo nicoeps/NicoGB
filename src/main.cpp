@@ -31,24 +31,42 @@ Key getKey(SDL_Keycode sym) {
     }
 }
 
+Key getGameController(SDL_GameControllerButton button) {
+    switch (button) {
+        case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: return RIGHT;  break;
+        case SDL_CONTROLLER_BUTTON_DPAD_LEFT:  return LEFT;   break;
+        case SDL_CONTROLLER_BUTTON_DPAD_UP:    return UP;     break;
+        case SDL_CONTROLLER_BUTTON_DPAD_DOWN:  return DOWN;   break;
+        case SDL_CONTROLLER_BUTTON_B:
+        case SDL_CONTROLLER_BUTTON_X:          return A;      break;
+        case SDL_CONTROLLER_BUTTON_A:
+        case SDL_CONTROLLER_BUTTON_Y:          return B;      break;
+        case SDL_CONTROLLER_BUTTON_BACK:       return SELECT; break;
+        case SDL_CONTROLLER_BUTTON_START:      return START;  break;
+        default:                               return NONE;   break;
+    }
+}
+
 void run(NicoGB& nicogb) {
     const int SCALE = 4;
     const int WIDTH = 160;
     const int HEIGHT = 144;
 
-    SDL_Init(SDL_INIT_VIDEO);
+    SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER);
     SDL_Window *window = SDL_CreateWindow("NicoGB",
         SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
         WIDTH*SCALE, HEIGHT*SCALE, 0);
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, 0);
     SDL_Texture *texture = SDL_CreateTexture(renderer,
-    SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 160, 144);
+        SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, 160, 144);
     SDL_UpdateTexture(texture, NULL, nicogb.framebuffer.data(), 160 * sizeof(uint32_t));
 
     SDL_Event event;
     SDL_EventState(SDL_DROPFILE, SDL_ENABLE);
     std::string path;
     Key key;
+
+    SDL_GameController *controller = NULL;
 
     auto last = millis();
     bool run = true;
@@ -97,6 +115,34 @@ void run(NicoGB& nicogb) {
                         key = getKey(event.key.keysym.sym);
                         nicogb.keyUp(key);
                         break;
+
+                    case SDL_CONTROLLERDEVICEADDED:
+                        if (SDL_IsGameController(event.cdevice.which)) {
+                            controller = SDL_GameControllerOpen(event.cdevice.which);
+                        }
+                        break;
+
+                    case SDL_CONTROLLERDEVICEREMOVED:
+                        SDL_GameControllerClose(controller);
+                        break;
+
+                    case SDL_CONTROLLERBUTTONDOWN:
+                        switch (event.cbutton.button) {
+                            case SDL_CONTROLLER_BUTTON_GUIDE:
+                                nicogb.speed = !nicogb.speed;
+                                break;
+                            default:
+                                key = getGameController((SDL_GameControllerButton) event.cbutton.button);
+                                nicogb.keyDown(key);
+                                break;
+                        }
+                        break;
+
+                    case SDL_CONTROLLERBUTTONUP:
+                        key = getGameController((SDL_GameControllerButton) event.cbutton.button);
+                        nicogb.keyUp(key);
+                        break;
+
 
                     default: break;
                 }
